@@ -168,6 +168,34 @@ func TestValidate_TelegramNoToken(t *testing.T) {
 	}
 }
 
+func TestValidate_UnknownAgentProvider(t *testing.T) {
+	cfg := &Config{
+		Hive: HiveConfig{ID: "h", DataDir: "/data"},
+		Providers: map[string]ProviderConfig{
+			"default": {APIKey: "k", Model: "m"},
+		},
+		Agents: []protocol.AgentSpec{{ID: "a", Role: "r", Provider: "nonexistent"}},
+	}
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unknown provider") {
+		t.Errorf("expected unknown provider error, got %v", err)
+	}
+}
+
+func TestValidate_KnownAgentProvider(t *testing.T) {
+	cfg := &Config{
+		Hive: HiveConfig{ID: "h", DataDir: "/data"},
+		Providers: map[string]ProviderConfig{
+			"default": {APIKey: "k", Model: "m"},
+			"smart":   {APIKey: "k2", Model: "m2"},
+		},
+		Agents: []protocol.AgentSpec{{ID: "a", Role: "r", Provider: "smart"}},
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("expected valid, got %v", err)
+	}
+}
+
 func TestValidate_Valid(t *testing.T) {
 	cfg := &Config{
 		Hive: HiveConfig{ID: "h", DataDir: "/data"},

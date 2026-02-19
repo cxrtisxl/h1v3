@@ -42,6 +42,18 @@ func (r *mockRouter) GetTicket(ticketID string) (*protocol.Ticket, error) {
 	return t, nil
 }
 
+func (r *mockRouter) ListSubTickets(parentID string) ([]*protocol.Ticket, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var subs []*protocol.Ticket
+	for _, t := range r.tickets {
+		if t.ParentID == parentID {
+			subs = append(subs, t)
+		}
+	}
+	return subs, nil
+}
+
 func (r *mockRouter) getMessages() []protocol.Message {
 	r.mu.Lock()
 	defer r.mu.Unlock()

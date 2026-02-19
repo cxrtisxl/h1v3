@@ -22,7 +22,7 @@ func TestBuildSystemPrompt_Basic(t *testing.T) {
 		Logger: slog.Default(),
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	if !strings.Contains(prompt, "# Agent: coder") {
 		t.Error("expected agent ID in prompt")
@@ -56,7 +56,7 @@ func TestBuildSystemPrompt_WithScopedContexts(t *testing.T) {
 		Logger: slog.Default(),
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	if !strings.Contains(prompt, "# Context") {
 		t.Error("expected context section")
@@ -90,7 +90,7 @@ func TestBuildSystemPrompt_WithTicket(t *testing.T) {
 		},
 	}
 
-	prompt := a.BuildSystemPrompt(ticket)
+	prompt := a.BuildSystemPrompt(ticket, nil)
 
 	if !strings.Contains(prompt, "# Current Ticket") {
 		t.Error("expected ticket section")
@@ -119,7 +119,7 @@ func TestBuildSystemPrompt_WithTools(t *testing.T) {
 		Logger: slog.Default(),
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	if !strings.Contains(prompt, "# Available Tools") {
 		t.Error("expected tools section")
@@ -146,7 +146,7 @@ func TestBuildSystemPrompt_WithMemory(t *testing.T) {
 		Memory: mem,
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	if !strings.Contains(prompt, "# Memory") {
 		t.Error("expected memory section")
@@ -187,7 +187,7 @@ func TestBuildSystemPrompt_WithMemoryEmpty(t *testing.T) {
 		Memory: mem,
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	if strings.Contains(prompt, "# Memory") {
 		t.Error("should not have memory section when store is empty")
@@ -205,7 +205,7 @@ func TestBuildSystemPrompt_NoTicketNoContexts(t *testing.T) {
 		Logger: slog.Default(),
 	}
 
-	prompt := a.BuildSystemPrompt(nil)
+	prompt := a.BuildSystemPrompt(nil, nil)
 
 	// Should NOT contain context or ticket sections
 	if strings.Contains(prompt, "# Context") {

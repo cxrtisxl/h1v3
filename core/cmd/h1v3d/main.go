@@ -144,7 +144,15 @@ func main() {
 		agentTools.Register(&tool.SearchTicketsTool{Broker: broker, AgentID: spec.ID})
 		agentTools.Register(&tool.GetTicketTool{Broker: broker})
 
-		ag := agent.New(spec, defaultProv, agentTools)
+		// Select provider: per-agent override, then "default"
+		prov := defaultProv
+		if spec.Provider != "" {
+			if p, ok := providers[spec.Provider]; ok {
+				prov = p
+			}
+		}
+
+		ag := agent.New(spec, prov, agentTools)
 		ag.Memory = mem
 		ag.Logger = logger.With("agent", spec.ID)
 

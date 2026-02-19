@@ -36,12 +36,16 @@ const inputMessagesKey = contextKey("input_messages")
 // respondedKey is the context key for the responded flag (*bool).
 const respondedKey = contextKey("responded")
 
+// deferredMsgsKey is the context key for deferred message delivery.
+const deferredMsgsKey = contextKey("deferred_messages")
+
 // WithCurrentTicket returns a context with the current ticket ID set.
 func WithCurrentTicket(ctx context.Context, ticketID string) context.Context {
 	return context.WithValue(ctx, TicketContextKey, ticketID)
 }
 
-func currentTicketFromContext(ctx context.Context) string {
+// CurrentTicketFromContext returns the ticket ID from the context, if any.
+func CurrentTicketFromContext(ctx context.Context) string {
 	if v, ok := ctx.Value(TicketContextKey).(string); ok {
 		return v
 	}
@@ -79,6 +83,20 @@ func Responded(ctx context.Context) bool {
 func markResponded(ctx context.Context) {
 	if flag, ok := ctx.Value(respondedKey).(*bool); ok {
 		*flag = true
+	}
+}
+
+// WithDeferredMessages returns a context that buffers messages for deferred
+// delivery. Messages on the current ticket are deferred so that a subsequent
+// close_ticket in the same turn can suppress inbox delivery.
+func WithDeferredMessages(ctx context.Context) (context.Context, *[]protocol.Message) {
+	msgs := &[]protocol.Message{}
+	return context.WithValue(ctx, deferredMsgsKey, msgs), msgs
+}
+
+func deferMessage(ctx context.Context, msg protocol.Message) {
+	if msgs, ok := ctx.Value(deferredMsgsKey).(*[]protocol.Message); ok {
+		*msgs = append(*msgs, msg)
 	}
 }
 
@@ -190,6 +208,11 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 	if len(to) == 0 {
 		return "", fmt.Errorf("create_ticket: at least one target agent is required")
 	}
+	for _, id := range to {
+		if id == t.AgentID {
+			return "", fmt.Errorf("create_ticket: cannot assign a ticket to yourself — do the work directly")
+		}
+	}
 	if t.Agents != nil {
 		if err := validateAgentIDs(t.Agents, to); err != nil {
 			return "", fmt.Errorf("create_ticket: %w", err)
@@ -197,7 +220,7 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 	}
 
 	// Auto-set parent ticket from context (the ticket the agent is currently working on)
-	parentID := currentTicketFromContext(ctx)
+	parentID := CurrentTicketFromContext(ctx)
 
 	tk, err := t.Broker.CreateTicket(t.AgentID, title, goal, parentID, to, tags)
 	if err != nil {
@@ -254,6 +277,10 @@ func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any
 		return "", fmt.Errorf("respond_to_ticket: ticket %q not found", ticketID)
 	}
 
+	if tk.Status == protocol.TicketClosed {
+		return "Ticket is closed — message not delivered.", nil
+	}
+
 	recipients := collectRecipients(tk, t.AgentID)
 
 	msg := protocol.Message{
@@ -265,8 +292,15 @@ func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any
 		Timestamp: time.Now(),
 	}
 
-	if err := t.Broker.RouteMessage(msg); err != nil {
-		return "", fmt.Errorf("respond_to_ticket: %w", err)
+	// Defer delivery for messages on the current ticket so that a
+	// close_ticket call later in the same turn suppresses inbox delivery.
+	currentTicket := CurrentTicketFromContext(ctx)
+	if ticketID == currentTicket {
+		deferMessage(ctx, msg)
+	} else {
+		if err := t.Broker.RouteMessage(msg); err != nil {
+			return "", fmt.Errorf("respond_to_ticket: %w", err)
+		}
 	}
 
 	markResponded(ctx)

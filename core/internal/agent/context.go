@@ -11,7 +11,8 @@ import (
 
 // BuildSystemPrompt assembles the system prompt from layered context.
 // The ticket parameter is optional — pass nil for non-ticket interactions.
-func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket) string {
+// subTickets are child tickets of the current ticket (may be nil).
+func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protocol.Ticket) string {
 	var b strings.Builder
 
 	// 1. Agent identity
@@ -72,6 +73,19 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket) string {
 		b.WriteString("\n")
 	}
 
+	// 4b. Sub-tickets
+	if len(subTickets) > 0 {
+		b.WriteString("# Sub-tickets\n")
+		for _, st := range subTickets {
+			fmt.Fprintf(&b, "- %s — %s [%s]", st.ID, st.Title, st.Status)
+			if st.Summary != "" {
+				fmt.Fprintf(&b, " — %s", st.Summary)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	// 5. Available tools
 	toolNames := a.Tools.List()
 	if len(toolNames) > 0 {
@@ -100,6 +114,9 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket) string {
 	b.WriteString("- Do NOT ask follow-up questions unless the goal is genuinely unclear.\n")
 	b.WriteString("- Do NOT make small talk or discuss the task beyond what was asked.\n")
 	b.WriteString("- One response is usually enough. Provide the answer and stop.\n")
+	if ticket != nil && ticket.Goal != "" {
+		b.WriteString("- The ticket has a goal. If your response satisfies it, end your message with: \"The ticket might be closed.\"\n")
+	}
 	b.WriteString("\n## As the CREATOR (you opened the ticket):\n")
 	b.WriteString("- After receiving a response, evaluate whether the ticket's goal has been met.\n")
 	b.WriteString("- If the goal is satisfied, close the ticket IMMEDIATELY with close_ticket. Do not thank, acknowledge, or continue the conversation.\n")

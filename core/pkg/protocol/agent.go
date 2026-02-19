@@ -4,6 +4,7 @@ package protocol
 type AgentSpec struct {
 	ID               string            `json:"id"`
 	Role             string            `json:"role"`
+	Provider         string            `json:"provider,omitempty"`
 	CoreInstructions string            `json:"core_instructions"`
 	ScopedContexts   map[string]string `json:"scoped_contexts,omitempty"`
 	Tools            []string          `json:"tools,omitempty"`

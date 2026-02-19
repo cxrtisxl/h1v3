@@ -161,6 +161,11 @@ func (c *Config) Validate() error {
 		if a.Role == "" {
 			errs = append(errs, fmt.Sprintf("agents[%d].role is required", i))
 		}
+		if a.Provider != "" {
+			if _, ok := c.Providers[a.Provider]; !ok {
+				errs = append(errs, fmt.Sprintf("agents[%d].provider references unknown provider %q", i, a.Provider))
+			}
+		}
 	}
 
 	if c.Connectors.Telegram != nil && c.Connectors.Telegram.Token == "" {

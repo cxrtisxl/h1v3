@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,6 +134,7 @@ func (r *Registry) CreateTicket(from, title, goal, parentID string, to []string,
 }
 
 // RouteMessage persists a message to the ticket and delivers it to target agents' inboxes.
+// Messages on closed tickets are persisted but NOT delivered to agent inboxes.
 func (r *Registry) RouteMessage(msg protocol.Message) error {
 	if msg.TicketID == "" {
 		return fmt.Errorf("registry: message must have a ticket_id")
@@ -141,9 +143,20 @@ func (r *Registry) RouteMessage(msg protocol.Message) error {
 		msg.ID = generateID()
 	}
 
+	// Check ticket status — don't deliver messages on closed tickets
+	tk, err := r.store.Get(msg.TicketID)
+	if err != nil {
+		return fmt.Errorf("registry: route message: ticket lookup: %w", err)
+	}
 	// Persist message
 	if err := r.store.AppendMessage(msg.TicketID, msg); err != nil {
 		return fmt.Errorf("registry: route message: %w", err)
+	}
+
+	// Skip inbox delivery on closed tickets (message is still persisted for history)
+	if tk.Status == protocol.TicketClosed {
+		r.logger.Debug("ticket closed, message persisted but delivery skipped", "ticket", msg.TicketID, "from", msg.From)
+		return nil
 	}
 
 	// Deliver to target agents
@@ -215,10 +228,19 @@ func (r *Registry) CloseTicket(ticketID, summary string) error {
 	return nil
 }
 
-// relayToParent injects the child ticket's summary into the parent ticket,
-// waking the creator agent in the parent context.
+// relayToParent injects the child ticket's full conversation into the parent
+// ticket, waking the creator agent in the parent context.
 func (r *Registry) relayToParent(child *protocol.Ticket, summary string) {
-	content := fmt.Sprintf("[Sub-ticket resolved: %q] %s", child.Title, summary)
+	var b strings.Builder
+	fmt.Fprintf(&b, "[Sub-ticket resolved: %q]\n", child.Title)
+	fmt.Fprintf(&b, "Summary: %s\n", summary)
+	if len(child.Messages) > 0 {
+		b.WriteString("\nFull conversation:\n")
+		for _, m := range child.Messages {
+			fmt.Fprintf(&b, "[%s]: %s\n", m.From, m.Content)
+		}
+	}
+	content := b.String()
 
 	msg := protocol.Message{
 		ID:        generateID(),
@@ -257,6 +279,11 @@ func (r *Registry) ListTickets(filter ticket.Filter) ([]*protocol.Ticket, error)
 // CountTickets returns the number of tickets matching the filter.
 func (r *Registry) CountTickets(filter ticket.Filter) (int, error) {
 	return r.store.Count(filter)
+}
+
+// ListSubTickets returns tickets whose parent_id matches the given ID.
+func (r *Registry) ListSubTickets(parentID string) ([]*protocol.Ticket, error) {
+	return r.store.List(ticket.Filter{ParentID: parentID})
 }
 
 // Store returns the underlying ticket store.

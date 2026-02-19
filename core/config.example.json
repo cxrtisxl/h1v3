@@ -15,12 +15,19 @@
     {
       "id": "coder",
       "role": "Software engineer",
+      "provider": "smart",
       "core_instructions": "You are a software engineer. Write clean, working code. Use filesystem and shell tools.",
       "directory": "/data/agents/coder"
     }
   ],
   "providers": {
     "default": {
+      "type": "openai",
+      "api_key": "YOUR_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o-mini"
+    },
+    "smart": {
       "type": "openai",
       "api_key": "YOUR_API_KEY",
       "base_url": "https://openrouter.ai/api/v1",

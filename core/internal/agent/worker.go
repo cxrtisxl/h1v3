@@ -21,6 +21,7 @@ const (
 type MessageRouter interface {
 	RouteMessage(msg protocol.Message) error
 	GetTicket(ticketID string) (*protocol.Ticket, error)
+	ListSubTickets(parentID string) ([]*protocol.Ticket, error)
 }
 
 // Worker runs an agent's event loop, processing messages from an inbox channel.
@@ -70,8 +71,14 @@ func (w *Worker) handleMessage(ctx context.Context, msg protocol.Message, attemp
 		return
 	}
 
+	// Load sub-tickets for context
+	var subTickets []*protocol.Ticket
+	if subs, err := w.Router.ListSubTickets(ticket.ID); err == nil {
+		subTickets = subs
+	}
+
 	// Build system prompt with ticket context
-	systemPrompt := w.Agent.BuildSystemPrompt(ticket)
+	systemPrompt := w.Agent.BuildSystemPrompt(ticket, subTickets)
 
 	// Build conversation: system prompt + ticket messages as context + incoming message
 	messages := []protocol.ChatMessage{
@@ -95,6 +102,7 @@ func (w *Worker) handleMessage(ctx context.Context, msg protocol.Message, attemp
 	ticketCtx := tool.WithCurrentTicket(ctx, msg.TicketID)
 	ticketCtx = tool.WithInputMessages(ticketCtx, messages)
 	ticketCtx, responded := tool.WithRespondedFlag(ticketCtx)
+	ticketCtx, deferredMsgs := tool.WithDeferredMessages(ticketCtx)
 	response, err := w.Agent.RunWithHistory(ticketCtx, messages)
 	if err != nil {
 		errContextID := fmt.Sprintf("err-%d", time.Now().UnixNano())
@@ -146,9 +154,31 @@ func (w *Worker) handleMessage(ctx context.Context, msg protocol.Message, attemp
 		return
 	}
 
+	// Flush deferred messages (respond_to_ticket on the current ticket).
+	// RouteMessage checks ticket status and skips inbox delivery on closed tickets.
+	for _, dm := range *deferredMsgs {
+		if err := w.Router.RouteMessage(dm); err != nil {
+			w.Agent.Logger.Error("failed to deliver deferred message",
+				"agent", agentID,
+				"ticket", dm.TicketID,
+				"error", err,
+			)
+		}
+	}
+
 	// Skip auto-response if agent already responded via respond_to_ticket,
 	// or if the final LLM output is empty.
 	if *responded || strings.TrimSpace(response) == "" {
+		return
+	}
+
+	// Re-check ticket status — it may have been closed during the ReAct loop
+	// (e.g. via close_ticket). Don't deliver messages on closed tickets.
+	if freshTicket, err := w.Router.GetTicket(msg.TicketID); err == nil && freshTicket.Status == protocol.TicketClosed {
+		w.Agent.Logger.Debug("ticket closed during processing, skipping auto-response",
+			"agent", agentID,
+			"ticket", msg.TicketID,
+		)
 		return
 	}
 
