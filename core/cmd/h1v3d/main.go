@@ -143,6 +143,7 @@ func main() {
 		agentTools.Register(&tool.CloseTicketTool{Broker: broker, AgentID: spec.ID})
 		agentTools.Register(&tool.SearchTicketsTool{Broker: broker, AgentID: spec.ID})
 		agentTools.Register(&tool.GetTicketTool{Broker: broker})
+		agentTools.Register(&tool.WaitTool{})
 
 		// Select provider: per-agent override, then "default"
 		prov := defaultProv

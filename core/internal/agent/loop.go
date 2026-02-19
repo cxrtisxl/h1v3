@@ -72,10 +72,9 @@ func (a *Agent) runLoop(ctx context.Context, messages []protocol.ChatMessage) (s
 		// Execute each tool call and append results
 		ticketID := tool.CurrentTicketFromContext(ctx)
 		for _, tc := range resp.ToolCalls {
-			a.Logger.Info("tool call",
+			a.Logger.Info(fmt.Sprintf("tool call: %s", tc.Name),
 				"agent", a.Spec.ID,
 				"ticket", ticketID,
-				"tool", tc.Name,
 				"call_id", tc.ID,
 			)
 
@@ -83,17 +82,15 @@ func (a *Agent) runLoop(ctx context.Context, messages []protocol.ChatMessage) (s
 			if err != nil {
 				// Return error as tool result so the LLM can recover
 				result = fmt.Sprintf("Error: %v", err)
-				a.Logger.Warn("tool error",
+				a.Logger.Warn(fmt.Sprintf("tool error: %s", tc.Name),
 					"agent", a.Spec.ID,
 					"ticket", ticketID,
-					"tool", tc.Name,
 					"error", err,
 				)
 			} else {
-				a.Logger.Info("tool result",
+				a.Logger.Info(fmt.Sprintf("tool result: %s", tc.Name),
 					"agent", a.Spec.ID,
 					"ticket", ticketID,
-					"tool", tc.Name,
 					"result_len", len(result),
 				)
 			}

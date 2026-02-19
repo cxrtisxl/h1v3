@@ -227,12 +227,17 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 		return "", fmt.Errorf("create_ticket: %w", err)
 	}
 
-	// Deliver initial message to target agents via normal routing
+	// Deliver initial message to target agents via normal routing.
+	// Include the goal in the message body so assignees have the full context.
+	content := title
+	if goal != "" {
+		content = title + "\n\n" + goal
+	}
 	msg := protocol.Message{
 		ID:        generateMsgID(),
 		From:      t.AgentID,
 		To:        to,
-		Content:   title,
+		Content:   content,
 		TicketID:  tk.ID,
 		Timestamp: time.Now(),
 	}
@@ -359,6 +364,20 @@ func (t *CloseTicketTool) Execute(_ context.Context, params map[string]any) (str
 		return "", fmt.Errorf("close_ticket: only the creator (%s) can close this ticket", tk.CreatedBy)
 	}
 
+	// Block closing if there are open sub-tickets
+	openStatus := protocol.TicketOpen
+	openSubs, err := t.Broker.ListTickets(ticket.Filter{ParentID: ticketID, Status: &openStatus})
+	if err != nil {
+		return "", fmt.Errorf("close_ticket: failed to check sub-tickets: %w", err)
+	}
+	if len(openSubs) > 0 {
+		var ids []string
+		for _, s := range openSubs {
+			ids = append(ids, fmt.Sprintf("%s (%s)", s.ID, s.Title))
+		}
+		return "", fmt.Errorf("close_ticket: cannot close — %d open sub-ticket(s) remain: %s. Use wait to wait for them to resolve.", len(openSubs), strings.Join(ids, ", "))
+	}
+
 	if err := t.Broker.CloseTicket(ticketID, summary); err != nil {
 		return "", fmt.Errorf("close_ticket: %w", err)
 	}
@@ -478,4 +497,24 @@ func (t *GetTicketTool) Execute(_ context.Context, params map[string]any) (strin
 
 	data, _ := json.MarshalIndent(tk, "", "  ")
 	return string(data), nil
+}
+
+// --- WaitTool ---
+
+// WaitTool lets an agent pause without sending a response. The agent will be
+// woken when a sub-ticket resolves or a new message arrives on the ticket.
+type WaitTool struct{}
+
+func (t *WaitTool) Name() string        { return "wait" }
+func (t *WaitTool) Description() string  { return "Stop processing and wait. Use after create_ticket to wait for sub-ticket results before responding." }
+func (t *WaitTool) Parameters() map[string]any {
+	return map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	}
+}
+
+func (t *WaitTool) Execute(ctx context.Context, _ map[string]any) (string, error) {
+	markResponded(ctx)
+	return "Waiting. You will be woken when a sub-ticket resolves or a new message arrives.", nil
 }

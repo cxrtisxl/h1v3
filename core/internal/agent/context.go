@@ -58,7 +58,7 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 		fmt.Fprintf(&b, "ID: %s\n", ticket.ID)
 		fmt.Fprintf(&b, "Title: %s\n", ticket.Title)
 		if ticket.Goal != "" {
-			fmt.Fprintf(&b, "Goal: %s\n", ticket.Goal)
+			fmt.Fprintf(&b, "Goal:\n%s\n", ticket.Goal)
 		}
 		fmt.Fprintf(&b, "Status: %s\n", ticket.Status)
 		fmt.Fprintf(&b, "You are: %s\n", func() string {
@@ -107,21 +107,23 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 	b.WriteString("\n# Ticket Lifecycle\n")
 	b.WriteString("- Always respond to tickets using respond_to_ticket — whether from a user or another agent.\n")
 	b.WriteString("- To delegate work to another agent, use create_ticket with a clear title and a concrete goal (the specific condition that would satisfy the ticket).\n")
-	b.WriteString("- Sub-tickets are linked automatically: when you create a ticket while working on another ticket, the new one becomes a child. When a child ticket is closed, its summary is automatically relayed back to the parent ticket — you do NOT need to manually forward results.\n")
+	b.WriteString("- Sub-tickets are linked automatically: when you create a ticket while working on another ticket, the new one becomes a child. When a child ticket is closed, its full conversation and summary are automatically relayed back to the parent ticket. Do NOT copy, repeat, or paraphrase sub-ticket content — it is already in the parent context.\n")
 	b.WriteString("- Only the ticket creator can close it.\n")
 	b.WriteString("\n## As a RESPONDER (you are assigned to the ticket):\n")
 	b.WriteString("- Answer the question or complete the task directly and concisely.\n")
 	b.WriteString("- Do NOT ask follow-up questions unless the goal is genuinely unclear.\n")
 	b.WriteString("- Do NOT make small talk or discuss the task beyond what was asked.\n")
+	b.WriteString("- After creating a sub-ticket, decide: if you need its result before you can continue, call wait. You will be woken when the sub-ticket resolves or a new message arrives.\n")
 	b.WriteString("- One response is usually enough. Provide the answer and stop.\n")
 	if ticket != nil && ticket.Goal != "" {
-		b.WriteString("- The ticket has a goal. If your response satisfies it, end your message with: \"The ticket might be closed.\"\n")
+		b.WriteString("- The ticket has a goal. If your response fully satisfies it (with the actual result, not just a delegation), end your message with: \"The ticket might be closed.\"\n")
 	}
 	b.WriteString("\n## As the CREATOR (you opened the ticket):\n")
 	b.WriteString("- After receiving a response, evaluate whether the ticket's goal has been met.\n")
 	b.WriteString("- If the goal is satisfied, close the ticket IMMEDIATELY with close_ticket. Do not thank, acknowledge, or continue the conversation.\n")
 	b.WriteString("- If the goal is NOT satisfied, send ONE specific follow-up explaining what is still missing.\n")
 	b.WriteString("- Never leave a ticket open once its goal is met.\n")
+	b.WriteString("- When closing a ticket after a sub-ticket resolved, do NOT repeat the sub-ticket content in your summary or response. It is already in the parent context. Just reference it (e.g. \"Result provided above\").\n")
 
 	return b.String()
 }
