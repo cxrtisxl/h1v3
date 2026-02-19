@@ -1,0 +1,41 @@
+{
+  "hive": {
+    "id": "my-hive",
+    "data_dir": "/data",
+    "front_agent_id": "front",
+    "compact_threshold": 8000
+  },
+  "agents": [
+    {
+      "id": "front",
+      "role": "Front desk agent",
+      "core_instructions": "You are a helpful assistant. Greet users and answer their questions. Use your tools to read/write files and run commands.",
+      "directory": "/data/agents/front"
+    },
+    {
+      "id": "coder",
+      "role": "Software engineer",
+      "core_instructions": "You are a software engineer. Write clean, working code. Use filesystem and shell tools.",
+      "directory": "/data/agents/coder"
+    }
+  ],
+  "providers": {
+    "default": {
+      "type": "openai",
+      "api_key": "YOUR_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "anthropic/claude-sonnet-4"
+    }
+  },
+  "connectors": {
+    "telegram": {
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "allow_from": []
+    }
+  },
+  "api": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api_key": "YOUR_API_KEY"
+  }
+}

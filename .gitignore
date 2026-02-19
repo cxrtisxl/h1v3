@@ -1,0 +1,14 @@
+# Go
+core/bin/
+
+# Node
+monitor/node_modules/
+monitor/.next/
+monitor/.vercel/
+
+# OS
+.DS_Store
+
+# Env
+.env*.local
+*.pem

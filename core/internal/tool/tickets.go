@@ -1,0 +1,447 @@
+package tool
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/h1v3-io/h1v3/internal/ticket"
+	"github.com/h1v3-io/h1v3/pkg/protocol"
+)
+
+// TicketBroker abstracts ticket operations. Implemented by the registry
+// adapter in cmd/h1v3d to break the import cycle.
+type TicketBroker interface {
+	CreateTicket(from, title, goal, parentID string, to, tags []string) (*protocol.Ticket, error)
+	GetTicket(ticketID string) (*protocol.Ticket, error)
+	ListTickets(filter ticket.Filter) ([]*protocol.Ticket, error)
+	CountTickets(filter ticket.Filter) (int, error)
+	CloseTicket(ticketID, summary string) error
+	RouteMessage(msg protocol.Message) error
+}
+
+// contextKey is an unexported type for context keys in this package.
+type contextKey string
+
+// TicketContextKey is the context key for the current ticket ID.
+const TicketContextKey = contextKey("current_ticket_id")
+
+// inputMessagesKey is the context key for the input messages slice.
+const inputMessagesKey = contextKey("input_messages")
+
+// respondedKey is the context key for the responded flag (*bool).
+const respondedKey = contextKey("responded")
+
+// WithCurrentTicket returns a context with the current ticket ID set.
+func WithCurrentTicket(ctx context.Context, ticketID string) context.Context {
+	return context.WithValue(ctx, TicketContextKey, ticketID)
+}
+
+func currentTicketFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(TicketContextKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// WithInputMessages returns a context carrying the LLM input messages.
+func WithInputMessages(ctx context.Context, msgs []protocol.ChatMessage) context.Context {
+	return context.WithValue(ctx, inputMessagesKey, msgs)
+}
+
+// InputMessagesFromContext retrieves the LLM input messages from context.
+func InputMessagesFromContext(ctx context.Context) []protocol.ChatMessage {
+	if v, ok := ctx.Value(inputMessagesKey).([]protocol.ChatMessage); ok {
+		return v
+	}
+	return nil
+}
+
+// WithRespondedFlag returns a context carrying a mutable responded flag.
+// The flag is set to true when respond_to_ticket is called.
+func WithRespondedFlag(ctx context.Context) (context.Context, *bool) {
+	flag := new(bool)
+	return context.WithValue(ctx, respondedKey, flag), flag
+}
+
+// Responded returns true if respond_to_ticket was called in this context.
+func Responded(ctx context.Context) bool {
+	if flag, ok := ctx.Value(respondedKey).(*bool); ok {
+		return *flag
+	}
+	return false
+}
+
+func markResponded(ctx context.Context) {
+	if flag, ok := ctx.Value(respondedKey).(*bool); ok {
+		*flag = true
+	}
+}
+
+// --- helpers ---
+
+func getStringSlice(params map[string]any, key string) []string {
+	raw, ok := params[key]
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	}
+	return nil
+}
+
+func generateMsgID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return fmt.Sprintf("m-%x", b)
+}
+
+// collectRecipients returns all ticket participants except the sender.
+func collectRecipients(tk *protocol.Ticket, sender string) []string {
+	seen := make(map[string]bool)
+	seen[sender] = true
+
+	var recipients []string
+	if !seen[tk.CreatedBy] {
+		recipients = append(recipients, tk.CreatedBy)
+		seen[tk.CreatedBy] = true
+	}
+	for _, id := range tk.WaitingOn {
+		if !seen[id] {
+			recipients = append(recipients, id)
+			seen[id] = true
+		}
+	}
+	return recipients
+}
+
+// validateAgentIDs checks that all given IDs are known agents.
+// Returns an error listing unknown IDs and the valid ones.
+func validateAgentIDs(lister AgentLister, ids []string) error {
+	known := make(map[string]bool)
+	for _, a := range lister.ListAgentInfo() {
+		known[a.ID] = true
+	}
+	var bad []string
+	for _, id := range ids {
+		if !known[id] {
+			bad = append(bad, id)
+		}
+	}
+	if len(bad) > 0 {
+		var valid []string
+		for id := range known {
+			valid = append(valid, id)
+		}
+		return fmt.Errorf("unknown agent(s): %s (valid agents: %s)", strings.Join(bad, ", "), strings.Join(valid, ", "))
+	}
+	return nil
+}
+
+// --- CreateTicketTool ---
+
+type CreateTicketTool struct {
+	Broker  TicketBroker
+	AgentID string
+	Agents  AgentLister
+}
+
+func (t *CreateTicketTool) Name() string        { return "create_ticket" }
+func (t *CreateTicketTool) Description() string  { return "Create a ticket to delegate work to other agents" }
+func (t *CreateTicketTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"to":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Target agent IDs"},
+			"title": map[string]any{"type": "string", "description": "Ticket title describing the task"},
+			"goal":  map[string]any{"type": "string", "description": "Concrete completion condition — what response or outcome would satisfy this ticket (e.g. 'Get the agent's display name')"},
+			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
+		},
+		"required": []string{"to", "title", "goal"},
+	}
+}
+
+func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (string, error) {
+	title := getString(params, "title")
+	goal := getString(params, "goal")
+	to := getStringSlice(params, "to")
+	tags := getStringSlice(params, "tags")
+
+	if title == "" {
+		return "", fmt.Errorf("create_ticket: title is required")
+	}
+	if goal == "" {
+		return "", fmt.Errorf("create_ticket: goal is required")
+	}
+	if len(to) == 0 {
+		return "", fmt.Errorf("create_ticket: at least one target agent is required")
+	}
+	if t.Agents != nil {
+		if err := validateAgentIDs(t.Agents, to); err != nil {
+			return "", fmt.Errorf("create_ticket: %w", err)
+		}
+	}
+
+	// Auto-set parent ticket from context (the ticket the agent is currently working on)
+	parentID := currentTicketFromContext(ctx)
+
+	tk, err := t.Broker.CreateTicket(t.AgentID, title, goal, parentID, to, tags)
+	if err != nil {
+		return "", fmt.Errorf("create_ticket: %w", err)
+	}
+
+	// Deliver initial message to target agents via normal routing
+	msg := protocol.Message{
+		ID:        generateMsgID(),
+		From:      t.AgentID,
+		To:        to,
+		Content:   title,
+		TicketID:  tk.ID,
+		Timestamp: time.Now(),
+	}
+	if err := t.Broker.RouteMessage(msg); err != nil {
+		return "", fmt.Errorf("create_ticket: route: %w", err)
+	}
+
+	return fmt.Sprintf("Ticket created: %s (title: %q, assigned to: %s)", tk.ID, title, strings.Join(to, ", ")), nil
+}
+
+// --- RespondToTicketTool ---
+
+type RespondToTicketTool struct {
+	Broker  TicketBroker
+	AgentID string
+	Logger  *slog.Logger
+}
+
+func (t *RespondToTicketTool) Name() string        { return "respond_to_ticket" }
+func (t *RespondToTicketTool) Description() string  { return "Send a message on an existing ticket" }
+func (t *RespondToTicketTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"ticket_id": map[string]any{"type": "string", "description": "Ticket ID to respond to"},
+			"message":   map[string]any{"type": "string", "description": "Response message"},
+		},
+		"required": []string{"ticket_id", "message"},
+	}
+}
+
+func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any) (string, error) {
+	ticketID := getString(params, "ticket_id")
+	message := getString(params, "message")
+
+	if ticketID == "" || message == "" {
+		return "", fmt.Errorf("respond_to_ticket: ticket_id and message are required")
+	}
+
+	tk, err := t.Broker.GetTicket(ticketID)
+	if err != nil {
+		return "", fmt.Errorf("respond_to_ticket: ticket %q not found", ticketID)
+	}
+
+	recipients := collectRecipients(tk, t.AgentID)
+
+	msg := protocol.Message{
+		ID:        generateMsgID(),
+		From:      t.AgentID,
+		To:        recipients,
+		Content:   message,
+		TicketID:  ticketID,
+		Timestamp: time.Now(),
+	}
+
+	if err := t.Broker.RouteMessage(msg); err != nil {
+		return "", fmt.Errorf("respond_to_ticket: %w", err)
+	}
+
+	markResponded(ctx)
+
+	// Log prompt context for this message
+	if t.Logger != nil {
+		if inputMsgs := InputMessagesFromContext(ctx); inputMsgs != nil {
+			if ctxJSON, err := json.Marshal(inputMsgs); err == nil {
+				t.Logger.Info("prompt_context",
+					"msg_id", msg.ID,
+					"agent", t.AgentID,
+					"ticket", ticketID,
+					"context", string(ctxJSON),
+				)
+			}
+		}
+	}
+
+	return fmt.Sprintf("Message sent on ticket %s to %s", ticketID, strings.Join(recipients, ", ")), nil
+}
+
+// --- CloseTicketTool ---
+
+type CloseTicketTool struct {
+	Broker  TicketBroker
+	AgentID string
+}
+
+func (t *CloseTicketTool) Name() string        { return "close_ticket" }
+func (t *CloseTicketTool) Description() string  { return "Close a ticket with a summary" }
+func (t *CloseTicketTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"ticket_id": map[string]any{"type": "string", "description": "Ticket ID to close"},
+			"summary":   map[string]any{"type": "string", "description": "Summary of what was accomplished"},
+		},
+		"required": []string{"ticket_id", "summary"},
+	}
+}
+
+func (t *CloseTicketTool) Execute(_ context.Context, params map[string]any) (string, error) {
+	ticketID := getString(params, "ticket_id")
+	summary := getString(params, "summary")
+
+	if ticketID == "" || summary == "" {
+		return "", fmt.Errorf("close_ticket: ticket_id and summary are required")
+	}
+
+	// Only the ticket creator can close it
+	tk, err := t.Broker.GetTicket(ticketID)
+	if err != nil {
+		return "", fmt.Errorf("close_ticket: %w", err)
+	}
+	if tk.CreatedBy != t.AgentID {
+		return "", fmt.Errorf("close_ticket: only the creator (%s) can close this ticket", tk.CreatedBy)
+	}
+
+	if err := t.Broker.CloseTicket(ticketID, summary); err != nil {
+		return "", fmt.Errorf("close_ticket: %w", err)
+	}
+
+	return fmt.Sprintf("Ticket %s closed: %s", ticketID, summary), nil
+}
+
+// --- SearchTicketsTool ---
+
+type SearchTicketsTool struct {
+	Broker  TicketBroker
+	AgentID string
+}
+
+func (t *SearchTicketsTool) Name() string { return "search_tickets" }
+func (t *SearchTicketsTool) Description() string {
+	return "Search through tickets intentionally. Returns ticket count and compact summaries. Use get_ticket to read full details of a specific ticket."
+}
+func (t *SearchTicketsTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"query":       map[string]any{"type": "string", "description": "Text search on ticket title and summary"},
+			"status":      map[string]any{"type": "string", "enum": []string{"open", "closed"}, "description": "Filter by ticket status"},
+			"participant": map[string]any{"type": "string", "description": "Filter by agent ID (created_by or assigned to)"},
+			"limit":       map[string]any{"type": "integer", "description": "Max results to return (default 20)"},
+		},
+	}
+}
+
+func (t *SearchTicketsTool) Execute(_ context.Context, params map[string]any) (string, error) {
+	filter := ticket.Filter{}
+
+	if status := getString(params, "status"); status != "" {
+		s := protocol.TicketStatus(status)
+		filter.Status = &s
+	}
+	if participant := getString(params, "participant"); participant != "" {
+		filter.AgentID = participant
+	}
+	if query := getString(params, "query"); query != "" {
+		filter.Query = query
+	}
+
+	limit := 20
+	if l, ok := params["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
+	filter.Limit = limit
+
+	// Get total count (without limit)
+	countFilter := filter
+	countFilter.Limit = 0
+	total, err := t.Broker.CountTickets(countFilter)
+	if err != nil {
+		return "", fmt.Errorf("search_tickets: count: %w", err)
+	}
+
+	tickets, err := t.Broker.ListTickets(filter)
+	if err != nil {
+		return "", fmt.Errorf("search_tickets: %w", err)
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Found %d ticket(s)", total)
+	if total > limit {
+		fmt.Fprintf(&b, " (showing %d)", limit)
+	}
+	b.WriteString("\n\n")
+
+	if len(tickets) == 0 {
+		b.WriteString("No tickets match your search.")
+		return b.String(), nil
+	}
+
+	for _, tk := range tickets {
+		fmt.Fprintf(&b, "- **%s** [%s] %s\n", tk.ID, tk.Status, tk.Title)
+		fmt.Fprintf(&b, "  from: %s, assigned: %s, created: %s",
+			tk.CreatedBy, strings.Join(tk.WaitingOn, ","), tk.CreatedAt.Format("2006-01-02 15:04"))
+		if tk.Summary != "" {
+			fmt.Fprintf(&b, "\n  summary: %s", tk.Summary)
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String(), nil
+}
+
+// --- GetTicketTool ---
+
+type GetTicketTool struct {
+	Broker TicketBroker
+}
+
+func (t *GetTicketTool) Name() string        { return "get_ticket" }
+func (t *GetTicketTool) Description() string  { return "Get full ticket details including messages" }
+func (t *GetTicketTool) Parameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"ticket_id": map[string]any{"type": "string", "description": "Ticket ID"},
+		},
+		"required": []string{"ticket_id"},
+	}
+}
+
+func (t *GetTicketTool) Execute(_ context.Context, params map[string]any) (string, error) {
+	ticketID := getString(params, "ticket_id")
+	if ticketID == "" {
+		return "", fmt.Errorf("get_ticket: ticket_id is required")
+	}
+
+	tk, err := t.Broker.GetTicket(ticketID)
+	if err != nil {
+		return "", fmt.Errorf("get_ticket: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(tk, "", "  ")
+	return string(data), nil
+}
