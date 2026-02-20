@@ -1,14 +1,14 @@
-# Modules
+# Core Modules
 
-## core/ -- Go Backend
+The Go backend lives in [`core/`](../core/). It produces two binaries: the daemon (`h1v3d`) and the CLI (`h1v3ctl`).
 
-### Entry Points
+## Entry Points
 
-#### `cmd/h1v3d` -- Daemon
+### `cmd/h1v3d` -- Daemon
 
 [`core/cmd/h1v3d/main.go`](../core/cmd/h1v3d/main.go)
 
-The daemon entry point. Startup sequence:
+Startup sequence:
 
 1. Parse flags: `--config`, `--platform-url`, `--hive-id`, `--platform-key`, `-v`
 2. Load config (file, platform API, or env vars)
@@ -20,7 +20,7 @@ The daemon entry point. Startup sequence:
 8. Start REST API server
 9. Block on SIGINT/SIGTERM, then gracefully shut down
 
-#### `cmd/h1v3ctl` -- CLI
+### `cmd/h1v3ctl` -- CLI
 
 [`core/cmd/h1v3ctl/main.go`](../core/cmd/h1v3ctl/main.go)
 
@@ -31,9 +31,7 @@ Two modes:
 
 ---
 
-### Configuration
-
-#### `internal/config`
+## Configuration (`internal/config`)
 
 | File | Description |
 |------|-------------|
@@ -56,7 +54,7 @@ See [`core/config.example.json`](../core/config.example.json) for a working exam
 
 ---
 
-### Public Types (`pkg/protocol`)
+## Public Types (`pkg/protocol`)
 
 Shared types used across all packages.
 
@@ -70,7 +68,7 @@ Shared types used across all packages.
 
 ---
 
-### Agent Package (`internal/agent`)
+## Agent Package (`internal/agent`)
 
 | File | Description |
 |------|-------------|
@@ -84,7 +82,7 @@ Shared types used across all packages.
 
 ---
 
-### Tool Package (`internal/tool`)
+## Tool Package (`internal/tool`)
 
 All tools implement the `Tool` interface: `Name()`, `Description()`, `Parameters()` (JSON Schema), `Execute(ctx, params)`.
 
@@ -108,7 +106,7 @@ Key design in `tickets.go`:
 
 ---
 
-### Registry Package (`internal/registry`)
+## Registry Package (`internal/registry`)
 
 | File | Description |
 |------|-------------|
@@ -119,7 +117,7 @@ Key design in `tickets.go`:
 
 ---
 
-### Ticket Package (`internal/ticket`)
+## Ticket Package (`internal/ticket`)
 
 | File | Description |
 |------|-------------|
@@ -128,7 +126,7 @@ Key design in `tickets.go`:
 
 ---
 
-### Provider Package (`internal/provider`)
+## Provider Package (`internal/provider`)
 
 | File | Description |
 |------|-------------|
@@ -138,7 +136,7 @@ Key design in `tickets.go`:
 
 ---
 
-### Memory Package (`internal/memory`)
+## Memory Package (`internal/memory`)
 
 | File | Description |
 |------|-------------|
@@ -147,13 +145,13 @@ Key design in `tickets.go`:
 
 ---
 
-### Connector Package (`internal/connector`)
+## Connector Package (`internal/connector`)
 
 | File | Description |
 |------|-------------|
 | [`connector.go`](../core/internal/connector/connector.go) | `Connector` interface: `Name()`, `Start(ctx)`, `Stop()`, `Send(ctx, OutboundMessage)`. `InboundHandler` function type |
 
-#### Telegram (`internal/connector/telegram`)
+### Telegram (`internal/connector/telegram`)
 
 | File | Description |
 |------|-------------|
@@ -161,13 +159,13 @@ Key design in `tickets.go`:
 | [`format.go`](../core/internal/connector/telegram/format.go) | `MarkdownToTelegramHTML` and `StripMarkdown` for Telegram-compatible formatting |
 | [`voice.go`](../core/internal/connector/telegram/voice.go) | Voice transcription via Whisper API (default Groq endpoint). Downloads audio, POSTs to Whisper, returns transcript |
 
-#### Slack (`internal/connector/slack`)
+### Slack (`internal/connector/slack`)
 
 | File | Description |
 |------|-------------|
 | [`slack.go`](../core/internal/connector/slack/slack.go) | Slack Socket Mode connector. Handles `MessageEvent`, `AppMentionEvent`, and slash commands. Thread-aware: uses `channel:thread_ts` as chatID. Converts Markdown to Slack mrkdwn |
 
-#### Webhook (`internal/connector/webhook`)
+### Webhook (`internal/connector/webhook`)
 
 | File | Description |
 |------|-------------|
@@ -175,25 +173,15 @@ Key design in `tickets.go`:
 
 ---
 
-### API Package (`internal/api`)
+## API Package (`internal/api`)
 
 [`server.go`](../core/internal/api/server.go)
 
-REST API server with CORS middleware and Bearer auth.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check (no auth) |
-| GET | `/api/agents` | List all agents |
-| GET | `/api/agents/{id}` | Get single agent |
-| GET | `/api/tickets` | List tickets (query: status, agent, parent_id, limit) |
-| GET | `/api/tickets/{id}` | Get ticket with messages |
-| POST | `/api/messages` | Inject message (auto-creates ticket if none specified) |
-| GET | `/api/logs` | Buffered log entries (query: limit, level, since) |
+REST API server with CORS middleware and Bearer auth. See [README](README.md#rest-api) for the endpoint table.
 
 ---
 
-### Utility Packages
+## Utility Packages
 
 | Package | File | Description |
 |---------|------|-------------|
@@ -203,7 +191,7 @@ REST API server with CORS middleware and Bearer auth.
 
 ---
 
-### Infrastructure
+## Infrastructure
 
 | File | Description |
 |------|-------------|
@@ -211,37 +199,3 @@ REST API server with CORS middleware and Bearer auth.
 | [`core/Makefile`](../core/Makefile) | `build`, `test`, `lint`, `cold-start` targets |
 | [`core/go.mod`](../core/go.mod) | Module `github.com/h1v3-io/h1v3`. Key deps: `modernc.org/sqlite`, `go-readability`, `telegram-bot-api/v5`, `slack-go/slack`, `robfig/cron/v3` |
 | [`.github/workflows/build.yml`](../.github/workflows/build.yml) | CI: run tests, then build+push Docker image to `ghcr.io` tagged with git SHA and `latest` |
-
----
-
-## monitor/ -- Next.js Dashboard
-
-A Next.js 14 (App Router) dashboard styled with Tailwind CSS and shadcn/ui. Talks directly to the daemon's REST API from the browser.
-
-### Lib
-
-| File | Description |
-|------|-------------|
-| [`lib/auth.ts`](../monitor/lib/auth.ts) | Stores API URL and key in `localStorage`. No server-side session |
-| [`lib/api.ts`](../monitor/lib/api.ts) | Typed fetch wrappers: `fetchAgents`, `fetchTickets`, `fetchTicket`, `fetchLogs`, `postMessage`. Auto-redirects to `/login` on 401 |
-
-### Pages
-
-| File | Description |
-|------|-------------|
-| [`app/login/page.tsx`](../monitor/app/login/page.tsx) | Login form (API URL + API Key). Validates via `/api/health` |
-| [`app/(app)/layout.tsx`](../monitor/app/(app)/layout.tsx) | Authenticated layout: checks `isAuthenticated()`, renders sidebar + main |
-| [`app/(app)/page.tsx`](../monitor/app/(app)/page.tsx) | Overview: agent count, ticket counts, agent grid, recent tickets table |
-| [`app/(app)/tickets/page.tsx`](../monitor/app/(app)/tickets/page.tsx) | Ticket list with All/Open/Closed filters, up to 100 tickets |
-| [`app/(app)/tickets/[id]/page.tsx`](../monitor/app/(app)/tickets/[id]/page.tsx) | Ticket detail: metadata, parent/sub-ticket links, message thread + logs side-by-side. Auto-refreshes every 3s for open tickets. Prompt-context dialog |
-| [`app/(app)/logs/page.tsx`](../monitor/app/(app)/logs/page.tsx) | Live log stream: polls every 2s, level filter, pause/resume, keeps last 2000 entries |
-
-### Components
-
-| File | Description |
-|------|-------------|
-| [`components/sidebar.tsx`](../monitor/components/sidebar.tsx) | Left nav: Overview / Tickets / Logs + Disconnect button |
-| [`components/ticket-table.tsx`](../monitor/components/ticket-table.tsx) | Table: ID, Title + goal, Status badge, Created By, Waiting On, Created timestamp |
-| [`components/message-thread.tsx`](../monitor/components/message-thread.tsx) | Chat bubble layout: external messages right-aligned, agent messages left-aligned. Sender, timestamp, content |
-| [`components/log-table.tsx`](../monitor/components/log-table.tsx) | Tabular log view with multi-select copy-to-clipboard and compact mode |
-| [`components/context-dialog.tsx`](../monitor/components/context-dialog.tsx) | Modal showing full LLM prompt context for a specific response |

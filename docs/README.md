@@ -9,9 +9,12 @@ h1v3 is a ticket-based multi-agent runtime. It runs a "hive" of AI agents that c
 | **[core/](../core/)** | Go daemon (`h1v3d`) and CLI (`h1v3ctl`) |
 | **[monitor/](../monitor/)** | Next.js dashboard for real-time inspection |
 
+The monitor is a standalone web app. It connects to the daemon exclusively through the [REST API](#rest-api) -- it is not a Connector and has no special integration. Any HTTP client (the monitor, `h1v3ctl`, `curl`) can use the same API.
+
 ## Documentation
 
-- **[Modules](modules.md)** -- every package/module and what it does
+- **[Core Modules](core.md)** -- every Go package in `core/`
+- **[Monitor](monitor.md)** -- the Next.js dashboard
 - **[Data Flows](data-flows.md)** -- how data moves between components
 
 ## Core Concepts
@@ -40,3 +43,19 @@ The central message broker. Holds all agents, their inbox channels, and "sinks" 
 ### Connectors
 
 External platform integrations (Telegram, Slack, webhooks) that bridge inbound user messages into the ticket system and deliver agent responses back out.
+
+### REST API
+
+The daemon exposes a REST API ([`core/internal/api/server.go`](../core/internal/api/server.go)) for inspecting and interacting with the hive. Authenticated via Bearer token.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check (no auth) |
+| GET | `/api/agents` | List all agents |
+| GET | `/api/agents/{id}` | Get single agent |
+| GET | `/api/tickets` | List tickets (query: status, agent, parent_id, limit) |
+| GET | `/api/tickets/{id}` | Get ticket with messages |
+| POST | `/api/messages` | Inject message (auto-creates ticket if none specified) |
+| GET | `/api/logs` | Buffered log entries (query: limit, level, since) |
+
+LLM prompt context is captured via structured log entries (message `"prompt_context"` with the full LLM input as a JSON attribute). These are stored in the in-memory log buffer and served through `GET /api/logs` like any other log entry. The monitor matches them to messages by `msg_id` to display the prompt context dialog.

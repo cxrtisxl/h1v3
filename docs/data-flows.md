@@ -300,45 +300,7 @@ Next iteration of ReAct loop
 
 ---
 
-## 7. Monitor Dashboard Data Flow
-
-The Next.js dashboard is read-only (except for message injection) and polls the daemon API.
-
-```
-Browser (monitor/)
-  |
-  |-- On load: check localStorage for auth          -- monitor/lib/auth.ts
-  |     If missing -> redirect to /login
-  |
-  |-- API calls via typed wrappers                   -- monitor/lib/api.ts
-  |     GET /api/agents     -> Overview page, agent list
-  |     GET /api/tickets    -> Ticket list page
-  |     GET /api/tickets/id -> Ticket detail page
-  |     GET /api/logs       -> Live logs page
-  |     POST /api/messages  -> (manual message injection)
-  |
-  |-- Polling:
-  |     Ticket detail: auto-refresh every 3s (open tickets)
-  |     Logs page: poll every 2s with incremental `since`
-  |
-  v
-daemon REST API                                      -- core/internal/api/server.go
-  |
-  |-- Auth: Bearer token from Authorization header
-  |-- Data: SQLite queries + in-memory log buffer
-  |
-  v
-JSON responses rendered by React components
-  |
-  |-- Ticket table                                   -- monitor/components/ticket-table.tsx
-  |-- Message thread (chat bubbles)                  -- monitor/components/message-thread.tsx
-  |-- Log table                                      -- monitor/components/log-table.tsx
-  |-- Context dialog (LLM prompt inspector)          -- monitor/components/context-dialog.tsx
-```
-
----
-
-## 8. Configuration Loading
+## 7. Configuration Loading
 
 Three strategies for loading config at startup.
 
