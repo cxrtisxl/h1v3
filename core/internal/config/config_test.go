@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,6 +206,106 @@ func TestValidate_Valid(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("expected valid, got %v", err)
+	}
+}
+
+func TestLoad_WithPresetFile(t *testing.T) {
+	dir := t.TempDir()
+
+	presetFile := `{
+  "agents": [
+    {
+      "id": "dev-agent",
+      "role": "Developer",
+      "provider": "default",
+      "core_instructions": "Write code.",
+      "directory": "/tmp/test/agents/dev"
+    }
+  ]
+}`
+	os.WriteFile(filepath.Join(dir, "preset.json"), []byte(presetFile), 0o644)
+
+	config := fmt.Sprintf(`{
+  "hive": {
+    "id": "test-hive",
+    "data_dir": %q,
+    "preset_file": "preset.json"
+  },
+  "providers": {
+    "default": { "api_key": "k", "model": "m" }
+  }
+}`, dir)
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644)
+
+	cfg, err := Load(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Agents[0].ID != "dev-agent" {
+		t.Errorf("expected id from preset file, got %q", cfg.Agents[0].ID)
+	}
+	if cfg.Agents[0].Role != "Developer" {
+		t.Errorf("expected role from preset file, got %q", cfg.Agents[0].Role)
+	}
+	if cfg.Agents[0].CoreInstructions != "Write code." {
+		t.Errorf("expected core_instructions from preset file, got %q", cfg.Agents[0].CoreInstructions)
+	}
+}
+
+func TestLoad_ConfigAgentsOverridePresetFile(t *testing.T) {
+	dir := t.TempDir()
+
+	presetFile := `{
+  "agents": [
+    {
+      "id": "preset-agent",
+      "role": "Preset Role",
+      "core_instructions": "From preset.",
+      "directory": "/tmp/test/agents/dev"
+    }
+  ]
+}`
+	os.WriteFile(filepath.Join(dir, "preset.json"), []byte(presetFile), 0o644)
+
+	config := fmt.Sprintf(`{
+  "hive": {
+    "id": "test-hive",
+    "data_dir": %q,
+    "preset_file": "preset.json"
+  },
+  "agents": [
+    {
+      "id": "inline-agent",
+      "role": "Inline Role",
+      "core_instructions": "From config.",
+      "directory": "/tmp/test/agents/dev"
+    }
+  ],
+  "providers": {
+    "default": { "api_key": "k", "model": "m" }
+  }
+}`, dir)
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644)
+
+	cfg, err := Load(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Agents[0].ID != "inline-agent" {
+		t.Errorf("expected config.json agents to win, got %q", cfg.Agents[0].ID)
+	}
+}
+
+func TestLoad_NoPresetsBackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(validJSON), 0o644)
+
+	cfg, err := Load(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Agents[0].ID != "coder" {
+		t.Errorf("expected inline agent to work without presets, got %q", cfg.Agents[0].ID)
 	}
 }
 

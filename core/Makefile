@@ -13,6 +13,10 @@ lint:
 clean:
 	rm -rf bin/
 
+# Usage: make cold-start [preset]
+# Example: make cold-start simple_dev.json
+PRESET := $(or $(word 2,$(MAKECMDGOALS)),default.json)
+
 cold-start: build
 	docker volume rm -f h1v3-data
 	docker build -t h1v3 .
@@ -20,4 +24,9 @@ cold-start: build
 		-p 8080:8080 \
 		-v $(PWD)/config.json:/config.json \
 		-v h1v3-data:/data \
+		-v $(PWD)/presets/$(PRESET):/data/preset.json:ro \
 		h1v3 h1v3d --config /config.json -v
+
+# Prevent Make from treating the preset arg as a target
+%:
+	@:

@@ -176,14 +176,14 @@ func main() {
 
 	// 4. Start connectors
 	if cfg.Connectors.Telegram != nil {
-		// Find front agent for external message handling
-		frontID := cfg.Hive.FrontAgentID
-		if frontID == "" {
-			frontID = "front"
+		// Determine which agent handles Telegram messages
+		frontID := cfg.Connectors.Telegram.AgentID
+		if frontID == "" && len(cfg.Agents) > 0 {
+			frontID = cfg.Agents[0].ID
 		}
 
 		if _, ok := reg.GetAgent(frontID); !ok {
-			logger.Warn("front agent not found, telegram connector will not start", "front_agent_id", frontID)
+			logger.Warn("telegram agent not found, telegram connector will not start", "agent_id", frontID)
 		} else {
 			// Forward-declare tgConn so the handler/sink closures can reference it
 			var tgConn *telegram.Connector
@@ -240,11 +240,11 @@ func main() {
 	}
 
 	// 5. Start API server
-	frontID := cfg.Hive.FrontAgentID
-	if frontID == "" {
-		frontID = "front"
+	apiFrontID := cfg.Hive.FrontAgentID
+	if apiFrontID == "" && len(cfg.Agents) > 0 {
+		apiFrontID = cfg.Agents[0].ID
 	}
-	apiSvc := &hiveServiceAdapter{reg: reg, store: store, frontAgentID: frontID}
+	apiSvc := &hiveServiceAdapter{reg: reg, store: store, frontAgentID: apiFrontID}
 	apiSrv := apiPkg.NewServer(apiSvc, apiPkg.Config{
 		Host: cfg.API.Host,
 		Port: cfg.API.Port,

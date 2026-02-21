@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -26,6 +27,12 @@ type HiveConfig struct {
 	DataDir          string `json:"data_dir"`
 	FrontAgentID     string `json:"front_agent_id"`
 	CompactThreshold int    `json:"compact_threshold"`
+	PresetFile       string `json:"preset_file,omitempty"`
+}
+
+// PresetFile is the structure of a preset JSON file.
+type PresetFile struct {
+	Agents []protocol.AgentSpec `json:"agents"`
 }
 
 // ProviderConfig holds LLM provider settings.
@@ -44,6 +51,7 @@ type ConnectorConfig struct {
 // TelegramConfig holds Telegram bot settings.
 type TelegramConfig struct {
 	Token     string  `json:"token"`
+	AgentID   string  `json:"agent_id,omitempty"`
 	AllowFrom []int64 `json:"allow_from,omitempty"`
 }
 
@@ -73,11 +81,50 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
+	if cfg.Hive.PresetFile != "" {
+		configDir := filepath.Dir(path)
+		pf, err := loadPresetFile(configDir, cfg.Hive.DataDir, cfg.Hive.PresetFile)
+		if err != nil {
+			return nil, err
+		}
+		applyPresetFile(&cfg, pf)
+	}
+
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
 }
+
+// loadPresetFile reads and parses a preset JSON file.
+// Relative paths are resolved against configDir first, then dataDir.
+func loadPresetFile(configDir, dataDir string, presetFile string) (*PresetFile, error) {
+	path := presetFile
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(configDir, presetFile)
+		if _, err := os.Stat(path); err != nil {
+			path = filepath.Join(dataDir, presetFile)
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: read preset file %s: %w", path, err)
+	}
+	var pf PresetFile
+	if err := json.Unmarshal(data, &pf); err != nil {
+		return nil, fmt.Errorf("config: parse preset file %s: %w", path, err)
+	}
+	return &pf, nil
+}
+
+// applyPresetFile merges agents and providers from the preset file into the config.
+// Preset file values are used only when the config doesn't already define them.
+func applyPresetFile(cfg *Config, pf *PresetFile) {
+	if len(cfg.Agents) == 0 {
+		cfg.Agents = pf.Agents
+	}
+}
+
 
 // LoadFromEnv builds a minimal config from environment variables with H1V3_ prefix.
 func LoadFromEnv() (*Config, error) {
