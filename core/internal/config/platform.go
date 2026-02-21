@@ -21,43 +21,45 @@ type PlatformOptions struct {
 // LoadFromPlatform fetches the hive configuration from the dashboard API,
 // sets up agent workspaces, and returns the parsed Config.
 func LoadFromPlatform(opts PlatformOptions) (*Config, error) {
+	return loadFromPlatformWithClient(opts, &http.Client{Timeout: 30 * time.Second})
+}
+
+func loadFromPlatformWithClient(opts PlatformOptions, client *http.Client) (*Config, error) {
 	if opts.DataDir == "" {
 		opts.DataDir = "/data"
 	}
 
 	// 1. Fetch config from platform
-	url := fmt.Sprintf("%s/api/hives/config", opts.PlatformURL)
-	req, err := http.NewRequest("GET", url, nil)
+	cfg, err := fetchPlatformJSON[Config](client, opts, "/api/hives/config")
 	if err != nil {
-		return nil, fmt.Errorf("platform: create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+opts.APIKey)
-	req.Header.Set("X-Hive-ID", opts.HiveID)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("platform: fetch config: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("platform: read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("platform: HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	// 2. Parse into Config
-	var cfg Config
-	if err := json.Unmarshal(body, &cfg); err != nil {
-		return nil, fmt.Errorf("platform: parse config: %w", err)
+		return nil, err
 	}
 
 	// Override data dir with local path
 	cfg.Hive.DataDir = opts.DataDir
+
+	// 2. If preset_file is set, fetch preset from platform and write to data dir
+	if cfg.Hive.PresetFile != "" {
+		preset, err := fetchPlatformJSON[PresetFile](client, opts, "/api/hives/preset")
+		if err != nil {
+			return nil, fmt.Errorf("platform: fetch preset: %w", err)
+		}
+
+		presetData, err := json.MarshalIndent(preset, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("platform: marshal preset: %w", err)
+		}
+
+		presetPath := filepath.Join(opts.DataDir, cfg.Hive.PresetFile)
+		if err := os.MkdirAll(filepath.Dir(presetPath), 0o755); err != nil {
+			return nil, fmt.Errorf("platform: create preset dir: %w", err)
+		}
+		if err := os.WriteFile(presetPath, presetData, 0o644); err != nil {
+			return nil, fmt.Errorf("platform: write preset file: %w", err)
+		}
+
+		applyPresetFile(cfg, preset)
+	}
 
 	// 3. Set up agent workspaces
 	for i, spec := range cfg.Agents {
@@ -80,5 +82,37 @@ func LoadFromPlatform(opts PlatformOptions) (*Config, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("platform: %w", err)
 	}
-	return &cfg, nil
+	return cfg, nil
+}
+
+// fetchPlatformJSON fetches and parses a JSON endpoint from the platform.
+func fetchPlatformJSON[T any](client *http.Client, opts PlatformOptions, path string) (*T, error) {
+	url := fmt.Sprintf("%s%s", opts.PlatformURL, path)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("platform: create request for %s: %w", path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+opts.APIKey)
+	req.Header.Set("X-Hive-ID", opts.HiveID)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("platform: fetch %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("platform: read %s: %w", path, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("platform: %s HTTP %d: %s", path, resp.StatusCode, string(body))
+	}
+
+	var result T
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("platform: parse %s: %w", path, err)
+	}
+	return &result, nil
 }

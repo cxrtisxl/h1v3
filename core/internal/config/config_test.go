@@ -1,7 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,6 +346,163 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if len(cfg.Connectors.Telegram.AllowFrom) != 3 {
 		t.Errorf("allow_from = %v", cfg.Connectors.Telegram.AllowFrom)
+	}
+}
+
+func TestLoadFromPlatform_WithPreset(t *testing.T) {
+	dataDir := t.TempDir()
+
+	configResp := Config{
+		Hive: HiveConfig{
+			ID:               "test-hive",
+			DataDir:          "/data",
+			FrontAgentID:     "coder",
+			CompactThreshold: 8000,
+			PresetFile:       "preset.json",
+		},
+		Providers: map[string]ProviderConfig{
+			"default": {APIKey: "sk-test", Model: "gpt-4o"},
+		},
+		API: APIConfig{Host: "0.0.0.0", Port: 8080, Key: "api-key"},
+	}
+
+	presetResp := PresetFile{
+		Agents: []protocol.AgentSpec{
+			{
+				ID:               "coder",
+				Role:             "Software Engineer",
+				CoreInstructions: "Write clean code.",
+			},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify auth headers
+		if r.Header.Get("Authorization") != "Bearer test-api-key" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("X-Hive-ID") != "test-hive" {
+			http.Error(w, "bad hive id", http.StatusForbidden)
+			return
+		}
+
+		switch r.URL.Path {
+		case "/api/hives/config":
+			json.NewEncoder(w).Encode(configResp)
+		case "/api/hives/preset":
+			json.NewEncoder(w).Encode(presetResp)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	opts := PlatformOptions{
+		PlatformURL: srv.URL,
+		HiveID:      "test-hive",
+		APIKey:      "test-api-key",
+		DataDir:     dataDir,
+	}
+
+	cfg, err := loadFromPlatformWithClient(opts, srv.Client())
+	if err != nil {
+		t.Fatalf("LoadFromPlatform: %v", err)
+	}
+
+	// Config should have agents from preset
+	if len(cfg.Agents) != 1 {
+		t.Fatalf("expected 1 agent, got %d", len(cfg.Agents))
+	}
+	if cfg.Agents[0].ID != "coder" {
+		t.Errorf("agent id = %q, want %q", cfg.Agents[0].ID, "coder")
+	}
+	if cfg.Agents[0].CoreInstructions != "Write clean code." {
+		t.Errorf("core_instructions = %q", cfg.Agents[0].CoreInstructions)
+	}
+
+	// Agent workspace should be set up
+	agentDir := filepath.Join(dataDir, "agents", "coder")
+	if cfg.Agents[0].Directory != agentDir {
+		t.Errorf("agent directory = %q, want %q", cfg.Agents[0].Directory, agentDir)
+	}
+	if _, err := os.Stat(agentDir); err != nil {
+		t.Errorf("agent dir not created: %v", err)
+	}
+
+	// Preset file should be written to data dir
+	presetPath := filepath.Join(dataDir, "preset.json")
+	presetData, err := os.ReadFile(presetPath)
+	if err != nil {
+		t.Fatalf("preset file not written: %v", err)
+	}
+	var writtenPreset PresetFile
+	if err := json.Unmarshal(presetData, &writtenPreset); err != nil {
+		t.Fatalf("preset file invalid JSON: %v", err)
+	}
+	if len(writtenPreset.Agents) != 1 || writtenPreset.Agents[0].ID != "coder" {
+		t.Errorf("preset file content unexpected: %+v", writtenPreset)
+	}
+
+	// SOUL.md should be written
+	soulPath := filepath.Join(agentDir, "SOUL.md")
+	if _, err := os.Stat(soulPath); err != nil {
+		t.Errorf("SOUL.md not created: %v", err)
+	}
+}
+
+func TestLoadFromPlatform_NoPreset(t *testing.T) {
+	dataDir := t.TempDir()
+
+	configResp := Config{
+		Hive: HiveConfig{
+			ID:               "test-hive",
+			DataDir:          "/data",
+			FrontAgentID:     "coder",
+			CompactThreshold: 8000,
+		},
+		Agents: []protocol.AgentSpec{
+			{
+				ID:               "coder",
+				Role:             "Software Engineer",
+				CoreInstructions: "Write code.",
+			},
+		},
+		Providers: map[string]ProviderConfig{
+			"default": {APIKey: "sk-test", Model: "gpt-4o"},
+		},
+		API: APIConfig{Host: "0.0.0.0", Port: 8080, Key: "api-key"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/hives/config" {
+			json.NewEncoder(w).Encode(configResp)
+		} else {
+			http.Error(w, "should not be called", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	opts := PlatformOptions{
+		PlatformURL: srv.URL,
+		HiveID:      "test-hive",
+		APIKey:      "test-api-key",
+		DataDir:     dataDir,
+	}
+
+	cfg, err := loadFromPlatformWithClient(opts, srv.Client())
+	if err != nil {
+		t.Fatalf("LoadFromPlatform: %v", err)
+	}
+
+	if len(cfg.Agents) != 1 || cfg.Agents[0].ID != "coder" {
+		t.Errorf("expected inline agent, got %+v", cfg.Agents)
+	}
+
+	// No preset file should be written
+	presetPath := filepath.Join(dataDir, "preset.json")
+	if _, err := os.Stat(presetPath); !os.IsNotExist(err) {
+		t.Errorf("preset file should not exist when preset_file is empty")
 	}
 }
 
