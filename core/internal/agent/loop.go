@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/h1v3-io/h1v3/internal/tool"
@@ -72,10 +73,12 @@ func (a *Agent) runLoop(ctx context.Context, messages []protocol.ChatMessage) (s
 		// Execute each tool call and append results
 		ticketID := tool.CurrentTicketFromContext(ctx)
 		for _, tc := range resp.ToolCalls {
+			argsJSON, _ := json.Marshal(tc.Arguments)
 			a.Logger.Info(fmt.Sprintf("tool call: %s", tc.Name),
 				"agent", a.Spec.ID,
 				"ticket", ticketID,
 				"call_id", tc.ID,
+				"args", string(argsJSON),
 			)
 
 			result, err := a.Tools.Execute(ctx, tc.Name, tc.Arguments)
@@ -91,7 +94,7 @@ func (a *Agent) runLoop(ctx context.Context, messages []protocol.ChatMessage) (s
 				a.Logger.Info(fmt.Sprintf("tool result: %s", tc.Name),
 					"agent", a.Spec.ID,
 					"ticket", ticketID,
-					"result_len", len(result),
+					"result", result,
 				)
 			}
 

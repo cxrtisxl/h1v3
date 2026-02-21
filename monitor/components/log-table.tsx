@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ContextDialog } from "@/components/context-dialog";
+import { ToolDetailDialog } from "@/components/tool-detail-dialog";
 import type { LogEntry, PromptMessage } from "@/lib/api";
 
 const levelVariant: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -66,6 +67,7 @@ export function LogTable({
   const [copied, setCopied] = useState(false);
   const [contextMessages, setContextMessages] = useState<PromptMessage[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [toolDetail, setToolDetail] = useState<{ title: string; content: string } | null>(null);
 
   const allSelected = entries.length > 0 && selected.size === entries.length;
 
@@ -172,9 +174,30 @@ export function LogTable({
                 {(() => {
                   const ctxId = e.attrs?.prompt_context_id as string | undefined;
                   const hasCtx = !!(promptContextMap && ctxId && promptContextMap[ctxId]);
+                  const isToolLog = e.message.startsWith("tool call:") || e.message.startsWith("tool result:") || e.message.startsWith("tool error:");
                   return (
                     <span className="inline-flex items-center gap-1.5">
                       {e.message}
+                      {isToolLog && (
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            const entries = Object.entries(e.attrs || {}).filter(([k]) => k !== "agent");
+                            setToolDetail({
+                              title: e.message,
+                              content: entries.length > 0
+                                ? entries.map(([k, v]) =>
+                                    `${k}: ${typeof v === "string" ? v : JSON.stringify(v, null, 2)}`
+                                  ).join("\n\n")
+                                : "(no details available)",
+                            });
+                          }}
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title="View tool details"
+                        >
+                          <Code className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {hasCtx && (
                         <button
                           onClick={(ev) => {
@@ -205,6 +228,12 @@ export function LogTable({
         messages={contextMessages}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+      />
+      <ToolDetailDialog
+        title={toolDetail?.title ?? ""}
+        content={toolDetail?.content ?? ""}
+        open={!!toolDetail}
+        onOpenChange={(open) => { if (!open) setToolDetail(null); }}
       />
     </div>
   );
