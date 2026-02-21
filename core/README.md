@@ -76,37 +76,31 @@ OPENAI_API_KEY=sk-... bin/h1v3ctl run -v --work-dir /path/to/project
 
 ### Run the Daemon (multi-agent hive)
 
+Configuration is split into two files:
+
+- **`config.json`** — deployment config: providers (API keys, models), connectors, API settings
+- **preset file** — agent definitions: who the agents are and what they do
+
+This separation lets you run the same image with different agent teams by swapping the preset file.
+
 #### 1. Create a config file
 
-Create `config.json`:
+Copy `config.example.json` to `config.json` and fill in your API keys:
 
 ```json
 {
   "hive": {
     "id": "my-hive",
     "data_dir": "/data",
-    "front_agent_id": "front",
-    "compact_threshold": 8000
+    "compact_threshold": 8000,
+    "preset_file": "preset.json"
   },
-  "agents": [
-    {
-      "id": "front",
-      "role": "Front desk agent",
-      "core_instructions": "You are a helpful assistant. Greet users and answer their questions. Use your tools to read/write files and run commands.",
-      "directory": "/data/agents/front"
-    },
-    {
-      "id": "coder",
-      "role": "Software engineer",
-      "core_instructions": "You are a software engineer. Write clean, working code. Use filesystem and shell tools.",
-      "directory": "/data/agents/coder"
-    }
-  ],
   "providers": {
     "default": {
-      "type": "anthropic",
-      "api_key": "sk-ant-...",
-      "model": "claude-sonnet-4-20250514"
+      "type": "openai",
+      "api_key": "sk-or-v1-...",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o"
     }
   },
   "api": {
@@ -117,25 +111,65 @@ Create `config.json`:
 }
 ```
 
-#### 2. Run directly
+#### 2. Create a preset file
+
+Preset files live in `presets/`. Each one defines a complete agent team:
+
+```json
+{
+  "agents": [
+    {
+      "id": "front",
+      "role": "Front desk agent",
+      "provider": "default",
+      "core_instructions": "You are a helpful assistant.",
+      "directory": "/data/agents/front"
+    },
+    {
+      "id": "coder",
+      "role": "Software engineer",
+      "provider": "default",
+      "core_instructions": "You are a software engineer. Write clean, working code.",
+      "directory": "/data/agents/coder"
+    }
+  ]
+}
+```
+
+Two presets are included:
+- `presets/default.json` — single onboarding agent
+- `presets/simple_dev.json` — three-agent dev team (front, PM, coder)
+
+#### 3. Run directly
 
 ```bash
 bin/h1v3d --config config.json -v
 ```
 
-#### 3. Or run with Docker
+When running locally, `preset_file` is resolved relative to the config file directory, so `"preset_file": "presets/default.json"` works if the presets folder is next to config.json.
+
+#### 4. Run with Docker
 
 ```bash
-# Build the image
-docker build -t h1v3 .
+# Build and run with the default preset
+make cold-start
 
-# Run with config mounted
+# Use a different preset
+make cold-start simple_dev.json
+```
+
+Under the hood, the Makefile mounts the chosen preset as `/data/preset.json` inside the container:
+
+```bash
 docker run -it --rm \
   -p 8080:8080 \
   -v $(pwd)/config.json:/config.json \
   -v h1v3-data:/data \
+  -v $(pwd)/presets/simple_dev.json:/data/preset.json:ro \
   h1v3 h1v3d --config /config.json -v
 ```
+
+The Docker image is universal — it contains no config or presets. Different deployments mount different files at runtime.
 
 ### Interact with the Daemon
 
@@ -166,32 +200,41 @@ bin/h1v3ctl tickets show <ticket-id>
 
 ## Configuration
 
-### Config File (JSON)
+### Config File (`config.json`)
 
-See the example above. All fields:
+Deployment-level settings — providers, connectors, API:
 
 | Field | Description |
 |-------|-------------|
 | `hive.id` | Unique hive identifier |
 | `hive.data_dir` | Data directory for SQLite, agent workspaces, memory |
-| `hive.front_agent_id` | Agent that receives external messages (default: `front`) |
+| `hive.front_agent_id` | Agent that receives API messages (default: first agent) |
 | `hive.compact_threshold` | Token threshold for ticket compaction (default: 8000) |
-| `agents[].id` | Unique agent ID |
-| `agents[].role` | Human-readable role description |
-| `agents[].core_instructions` | System prompt for the agent |
-| `agents[].directory` | Agent's workspace directory |
-| `agents[].wake_schedule` | Cron expression for periodic wake-ups (e.g., `@every 5m`) |
+| `hive.preset_file` | Path to the preset file (resolved relative to config dir, then `data_dir`) |
 | `providers.<name>.type` | Provider type: `openai` (default) or `anthropic` |
 | `providers.<name>.api_key` | LLM API key |
 | `providers.<name>.model` | Model name |
 | `providers.<name>.base_url` | Custom API base URL (for OpenRouter, local models, etc.) |
 | `connectors.telegram.token` | Telegram bot token |
+| `connectors.telegram.agent_id` | Agent that handles Telegram messages (default: first agent) |
 | `connectors.telegram.allow_from` | Array of allowed Telegram user IDs |
-| `connectors.telegram.voice.whisper_api_key` | Whisper API key for voice transcription |
 | `tools.brave_api_key` | Brave Search API key for web search |
 | `api.host` | API listen host (default: `0.0.0.0`) |
 | `api.port` | API listen port (default: `8080`) |
 | `api.api_key` | Bearer token for API authentication |
+
+### Preset File
+
+Agent definitions — who the agents are and what they do:
+
+| Field | Description |
+|-------|-------------|
+| `agents[].id` | Unique agent ID |
+| `agents[].role` | Human-readable role description |
+| `agents[].provider` | Provider name from `config.json` (default: `default`) |
+| `agents[].core_instructions` | System prompt for the agent |
+| `agents[].directory` | Agent's workspace directory |
+| `agents[].wake_schedule` | Cron expression for periodic wake-ups (e.g., `@every 5m`) |
 
 ### Environment Variables
 
@@ -236,11 +279,14 @@ To connect a Telegram bot, set the token in `config.json`:
   "connectors": {
     "telegram": {
       "token": "123456:ABC-DEF...",
+      "agent_id": "front",
       "allow_from": [123456789]
     }
   }
 }
 ```
+
+`agent_id` specifies which agent handles Telegram messages. If omitted, the first agent in the preset is used.
 
 Or via environment variable: `H1V3_TELEGRAM_TOKEN`. Optionally restrict access with `H1V3_TELEGRAM_ALLOW_FROM` (comma-separated user IDs).
 
