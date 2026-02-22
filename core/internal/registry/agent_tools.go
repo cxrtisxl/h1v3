@@ -85,7 +85,7 @@ func (t *CreateAgentTool) Execute(_ context.Context, params map[string]any) (str
 		ID:               name,
 		Role:             role,
 		CoreInstructions: instructions,
-		Tools:            tools,
+		ToolsWhitelist:   tools,
 	}
 
 	if t.Factory != nil {

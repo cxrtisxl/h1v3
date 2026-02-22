@@ -117,33 +117,38 @@ func main() {
 		// Create per-agent memory store
 		mem := memory.NewStore(spec.Directory)
 
-		// Create per-agent tool registry
+		// Create per-agent tool registry with whitelist/blacklist gating
 		agentTools := tool.NewRegistry()
-		agentTools.Register(&tool.ReadFileTool{AllowedDir: spec.Directory})
-		agentTools.Register(&tool.WriteFileTool{AllowedDir: spec.Directory})
-		agentTools.Register(&tool.EditFileTool{AllowedDir: spec.Directory})
-		agentTools.Register(&tool.ListDirTool{AllowedDir: spec.Directory})
-		agentTools.Register(&tool.ExecTool{WorkDir: spec.Directory})
-		agentTools.Register(&tool.WebFetchTool{})
+		register := func(t tool.Tool) {
+			if spec.ToolAllowed(t.Name()) {
+				agentTools.Register(t)
+			}
+		}
+		register(&tool.ReadFileTool{AllowedDir: spec.Directory})
+		register(&tool.WriteFileTool{AllowedDir: spec.Directory})
+		register(&tool.EditFileTool{AllowedDir: spec.Directory})
+		register(&tool.ListDirTool{AllowedDir: spec.Directory})
+		register(&tool.ExecTool{WorkDir: spec.Directory})
+		register(&tool.WebFetchTool{})
 		if cfg.Tools.BraveAPIKey != "" {
-			agentTools.Register(&tool.WebSearchTool{APIKey: cfg.Tools.BraveAPIKey})
+			register(&tool.WebSearchTool{APIKey: cfg.Tools.BraveAPIKey})
 		}
 		// Memory tools bound to this agent's store
-		agentTools.Register(&tool.ReadMemoryTool{Store: mem})
-		agentTools.Register(&tool.WriteMemoryTool{Store: mem})
-		agentTools.Register(&tool.ListMemoryTool{Store: mem})
-		agentTools.Register(&tool.DeleteMemoryTool{Store: mem})
+		register(&tool.ReadMemoryTool{Store: mem})
+		register(&tool.WriteMemoryTool{Store: mem})
+		register(&tool.ListMemoryTool{Store: mem})
+		register(&tool.DeleteMemoryTool{Store: mem})
 		// Hive discovery
-		agentTools.Register(&tool.ListAgentsTool{Lister: &agentListerAdapter{reg: reg}})
+		register(&tool.ListAgentsTool{Lister: &agentListerAdapter{reg: reg}})
 		// Ticket tools — create, respond, close, search
 		broker := &ticketBrokerAdapter{reg: reg}
 		lister := &agentListerAdapter{reg: reg}
-		agentTools.Register(&tool.CreateTicketTool{Broker: broker, AgentID: spec.ID, Agents: lister})
-		agentTools.Register(&tool.RespondToTicketTool{Broker: broker, AgentID: spec.ID, Logger: logger.With("agent", spec.ID)})
-		agentTools.Register(&tool.CloseTicketTool{Broker: broker, AgentID: spec.ID})
-		agentTools.Register(&tool.SearchTicketsTool{Broker: broker, AgentID: spec.ID})
-		agentTools.Register(&tool.GetTicketTool{Broker: broker})
-		agentTools.Register(&tool.WaitTool{})
+		register(&tool.CreateTicketTool{Broker: broker, AgentID: spec.ID, Agents: lister})
+		register(&tool.RespondToTicketTool{Broker: broker, AgentID: spec.ID, Logger: logger.With("agent", spec.ID)})
+		register(&tool.CloseTicketTool{Broker: broker, AgentID: spec.ID})
+		register(&tool.SearchTicketsTool{Broker: broker, AgentID: spec.ID})
+		register(&tool.GetTicketTool{Broker: broker})
+		register(&tool.WaitTool{})
 
 		// Select provider: per-agent override, then "default"
 		prov := defaultProv

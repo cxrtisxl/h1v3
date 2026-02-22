@@ -43,7 +43,7 @@ Config struct hierarchy:
 ```
 Config
 +-- HiveConfig           id, data_dir, front_agent_id, compact_threshold
-+-- []AgentSpec          id, role, provider, core_instructions, directory, wake_schedule, scoped_contexts, tools, skills
++-- []AgentSpec          id, role, provider, core_instructions, directory, wake_schedule, scoped_contexts, tools_whitelist, tools_blacklist, skills
 +-- map[name]ProviderConfig   type (openai|anthropic), api_key, model, base_url
 +-- ConnectorConfig      telegram{token, allow_from}, slack{bot_token, app_token, allow_from}
 +-- ToolsConfig          brave_api_key, shell_timeout, blocked_commands
@@ -84,7 +84,7 @@ Shared types used across all packages.
 
 ## Tool Package (`internal/tool`)
 
-All tools implement the `Tool` interface: `Name()`, `Description()`, `Parameters()` (JSON Schema), `Execute(ctx, params)`.
+All tools implement the `Tool` interface: `Name()`, `Description()`, `Parameters()` (JSON Schema), `Execute(ctx, params)`. See [TOOLS.md](TOOLS.md) for a full catalog of built-in tools and whitelist/blacklist configuration.
 
 | File | Tools | Description |
 |------|-------|-------------|

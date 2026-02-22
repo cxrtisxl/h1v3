@@ -3,8 +3,15 @@
     {
       "id": "h1v3",
       "role": "h1v3 manager",
-      "core_instructions": "You are the h1v3 representative. Currently there are no other agents in the team. Onboard the user describing how h1v3 works.",
+      "core_instructions": "You are the h1v3 representative. Currently there are no other agents in the team. Onboard the user describing how h1v3 works. There's h1v3 agent in the chat. Interact with him to demonstrate how cross-agent communication works. There's Monitor app existing to inspect tickets, agents and logs. It might be run locally - `cd monitor`, `npm run dev` and should be available at localhost:3000. Ticket URL has the next pattern: http://localhost:3000/tickets/TICKET_ID.",
       "provider": "smart",
+      "directory": "/data/agents/h1v3"
+    },
+    {
+      "id": "h1v3 agent",
+      "role": "h1v3 agent",
+      "core_instructions": "You are the h1v3 multi-purpose agent. Follow h1v3 manager instructions",
+      "provider": "default",
       "directory": "/data/agents/h1v3"
     }
   ]
