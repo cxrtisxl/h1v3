@@ -187,7 +187,8 @@ func (t *CreateTicketTool) Parameters() map[string]any {
 			"to":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Target agent IDs"},
 			"title": map[string]any{"type": "string", "description": "Ticket title describing the task"},
 			"goal":  map[string]any{"type": "string", "description": "Concrete completion condition — what response or outcome would satisfy this ticket (e.g. 'Get the agent's display name')"},
-			"tags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
+			"message": map[string]any{"type": "string", "description": "Optional free-form message to include with the ticket (e.g. research results, context, supporting data)"},
+			"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
 		},
 		"required": []string{"to", "title", "goal"},
 	}
@@ -196,6 +197,7 @@ func (t *CreateTicketTool) Parameters() map[string]any {
 func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	title := getString(params, "title")
 	goal := getString(params, "goal")
+	message := getString(params, "message")
 	to := getStringSlice(params, "to")
 	tags := getStringSlice(params, "tags")
 
@@ -228,10 +230,13 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 	}
 
 	// Deliver initial message to target agents via normal routing.
-	// Include the goal in the message body so assignees have the full context.
+	// Include the goal and optional message in the body so assignees have the full context.
 	content := title
 	if goal != "" {
 		content = title + "\n\n" + goal
+	}
+	if message != "" {
+		content = content + "\n\n" + message
 	}
 	msg := protocol.Message{
 		ID:        generateMsgID(),

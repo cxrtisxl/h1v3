@@ -106,7 +106,7 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 	b.WriteString("- Use write_memory to persist important information you learn or decide (your name, user preferences, key facts). Memory survives across sessions — anything not written to memory will be forgotten.\n")
 	b.WriteString("\n# Ticket Lifecycle\n")
 	b.WriteString("- Always respond to tickets using respond_to_ticket — whether from a user or another agent.\n")
-	b.WriteString("- To delegate work to another agent, use create_ticket with a clear title and a concrete goal (the specific condition that would satisfy the ticket).\n")
+	b.WriteString("- To delegate work to another agent, use create_ticket with a clear title and a concrete goal (the specific condition that would satisfy the ticket). Use the optional `message` field to pass supporting data (e.g. research results, context) so the assignee has everything in the first message.\n")
 	b.WriteString("- Sub-tickets are linked automatically: when you create a ticket while working on another ticket, the new one becomes a child. When a child ticket is closed, its full conversation and summary are automatically relayed back to the parent ticket. Do NOT copy, repeat, or paraphrase sub-ticket content — it is already in the parent context.\n")
 	b.WriteString("- Only the ticket creator can close it.\n")
 	b.WriteString("\n## As a RESPONDER (you are assigned to the ticket):\n")

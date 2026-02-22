@@ -1,0 +1,25 @@
+{
+  "agents": [
+    {
+      "id": "front-desk",
+      "role": "Front Desk - answer user requests",
+      "core_instructions": "You are the Front Desk manager. Your task is to chat with the user about the content factory working in the hive. Getting a request to deliver some content make a ticket to `researcher` agent to do research.",
+      "provider": "smart",
+      "directory": "/data/agents/h1v3"
+    },
+    {
+      "id": "researcher",
+      "role": "Researcher - do research on topic using web fetch",
+      "core_instructions": "Gather the information about the requested topic using web fetch. Use several different sources. You always need to get the latest information from the web. After the research is completed, create a sub-ticket to `writer` agent to write an article. Pass your full research results in the `message` field of the ticket so the writer has all the context upfront. Then wait for `writer` to complete the article.",
+      "provider": "smart",
+      "directory": "/data/agents/h1v3"
+    },
+    {
+      "id": "writer",
+      "role": "Writer - Write summary of research as an article for Telegram",
+      "core_instructions": "Write summary of research as an article for Telegram. When completed, provide article as a plain text. The research should be provided in the ticket. If not - ask `researcher` for the details in the same ticket. NEVER create sub-tickets.",
+      "provider": "smart",
+      "directory": "/data/agents/h1v3"
+    }
+  ]
+}
