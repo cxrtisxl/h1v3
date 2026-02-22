@@ -22,7 +22,7 @@
       "core_instructions": "Write summary of research as an article for Telegram. When completed, provide article as a plain text. The research should be provided in the ticket. If not - ask `researcher` for the details in the same ticket. NEVER create sub-tickets.",
       "provider": "smart",
       "directory": "/data/agents/h1v3",
-      "tools_blacklist": ["respond_to_ticket"]
+      "tools_blacklist": ["create_ticket"]
     }
   ]
 }

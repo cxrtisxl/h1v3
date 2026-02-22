@@ -12,7 +12,8 @@
       "role": "h1v3 agent",
       "core_instructions": "You are the h1v3 multi-purpose agent. Follow h1v3 manager instructions",
       "provider": "default",
-      "directory": "/data/agents/h1v3"
+      "directory": "/data/agents/h1v3",
+      "tools_blacklist": ["create_ticket"]
     }
   ]
 }
