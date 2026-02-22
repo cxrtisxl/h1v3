@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { LogTable } from "@/components/log-table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,7 +15,6 @@ export default function LogsPage() {
   const [loading, setLoading] = useState(true);
   const [level, setLevel] = useState<string>("all");
   const [polling, setPolling] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
   const latestTime = useRef<number>(0);
 
   // Initial load
@@ -67,12 +66,7 @@ export default function LogsPage() {
     return () => clearInterval(interval);
   }, [polling, level]);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [entries.length]);
+  const sortedEntries = [...entries].reverse();
 
   return (
     <div className="flex flex-col gap-4">
@@ -91,8 +85,9 @@ export default function LogsPage() {
         {LEVEL_OPTIONS.map((l) => (
           <Button
             key={l}
-            variant={level === l ? "default" : "outline"}
+            variant="outline"
             size="sm"
+            className={level === l ? "bg-[#1E1D27] text-foreground border-[#1E1D27]" : ""}
             onClick={() => setLevel(l)}
           >
             {l.toUpperCase()}
@@ -103,8 +98,8 @@ export default function LogsPage() {
       {loading ? (
         <Skeleton className="h-96" />
       ) : (
-        <ScrollArea className="h-[calc(100vh-200px)]" ref={scrollRef}>
-          <LogTable entries={entries} />
+        <ScrollArea className="h-[calc(100vh-200px)]">
+          <LogTable entries={sortedEntries} />
         </ScrollArea>
       )}
     </div>

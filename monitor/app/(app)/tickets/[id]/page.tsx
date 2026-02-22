@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +50,6 @@ export default function TicketDetailPage() {
   const [children, setChildren] = useState<Ticket[]>([]);
   const [ticketLogs, setTicketLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -92,12 +91,7 @@ export default function TicketDetailPage() {
     return () => clearInterval(interval);
   }, [ticket, load]);
 
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [ticket?.messages?.length]);
+  const reversedLogs = ticketLogs.slice().reverse();
 
   if (loading) {
     return (
@@ -250,7 +244,7 @@ export default function TicketDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[500px] pr-4" ref={scrollRef}>
+            <ScrollArea className="h-[500px] pr-4">
               <MessageThread
                 messages={ticket.messages || []}
                 promptContextMap={promptContextMap}
@@ -267,7 +261,7 @@ export default function TicketDetailPage() {
           </CardHeader>
           <CardContent>
             <ScrollArea className="h-[500px]">
-              <LogTable entries={ticketLogs} compact promptContextMap={promptContextMap} />
+              <LogTable entries={reversedLogs} compact promptContextMap={promptContextMap} />
             </ScrollArea>
           </CardContent>
         </Card>

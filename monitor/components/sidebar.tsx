@@ -1,7 +1,10 @@
 "use client";
 
+import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -15,11 +18,28 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside className="flex h-screen w-56 flex-col border-r bg-card px-3 py-4">
-      <div className="mb-4 px-2">
-        <h1 className="text-lg font-semibold tracking-tight">h1v3 monitor</h1>
+    <aside
+      className={cn(
+        "flex h-screen flex-col border-r bg-card py-4 transition-all duration-200",
+        collapsed ? "w-14 px-2" : "w-56 px-3"
+      )}
+    >
+      <div className={cn("mb-4 flex items-center", collapsed ? "justify-center" : "justify-between px-2")}>
+        <div className="flex items-center gap-2">
+          <Image src="/h1v3-logo.svg" alt="h1v3" width={24} height={24} className="shrink-0" />
+          {!collapsed && <h1 className="text-lg font-semibold tracking-tight">Monitor</h1>}
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("h-7 w-7 text-muted-foreground", collapsed && "mt-2")}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        </Button>
       </div>
       <Separator className="mb-4" />
       <nav className="flex flex-1 flex-col gap-1">
@@ -27,8 +47,10 @@ export function Sidebar() {
           <Link
             key={item.href}
             href={item.href}
+            title={collapsed ? item.label : undefined}
             className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
+              "rounded-md py-2 text-sm font-medium transition-colors hover:bg-accent",
+              collapsed ? "px-0 text-center" : "px-3",
               (item.href === "/"
                 ? pathname === "/"
                 : pathname.startsWith(item.href))
@@ -36,7 +58,7 @@ export function Sidebar() {
                 : "text-muted-foreground"
             )}
           >
-            {item.label}
+            {collapsed ? item.label.charAt(0) : item.label}
           </Link>
         ))}
       </nav>
@@ -44,13 +66,14 @@ export function Sidebar() {
       <Button
         variant="ghost"
         size="sm"
-        className="justify-start text-muted-foreground"
+        className={cn("text-muted-foreground", collapsed ? "justify-center px-0" : "justify-start")}
+        title={collapsed ? "Disconnect" : undefined}
         onClick={() => {
           clearAuth();
           window.location.href = "/login";
         }}
       >
-        Disconnect
+        {collapsed ? "X" : "Disconnect"}
       </Button>
     </aside>
   );

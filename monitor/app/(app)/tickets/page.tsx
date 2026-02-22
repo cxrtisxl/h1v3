@@ -38,8 +38,9 @@ export default function TicketsPage() {
         {STATUS_OPTIONS.map((s) => (
           <Button
             key={s}
-            variant={status === s ? "default" : "outline"}
+            variant="outline"
             size="sm"
+            className={status === s ? "bg-[#1E1D27] text-foreground border-[#1E1D27]" : ""}
             onClick={() => setStatus(s)}
           >
             {s.charAt(0).toUpperCase() + s.slice(1)}
