@@ -9,20 +9,20 @@
   "providers": {
     "default": {
       "type": "openai",
-      "api_key": "sk-or-v1-API-KEY",
+      "api_key": "$OPENROUTER_API_KEY",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "openai/gpt-4o"
+      "model": "z-ai/glm-4.5-air:free"
     },
     "smart": {
       "type": "openai",
-      "api_key": "sk-or-v1-API-KEY",
+      "api_key": "$OPENROUTER_API_KEY",
       "base_url": "https://openrouter.ai/api/v1",
-      "model": "anthropic/claude-sonnet-4"
+      "model": "openai/gpt-4o"
     }
   },
   "connectors": {
     "telegram": {
-      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "token": "$TELEGRAM_BOT_TOKEN",
       "agent_id": "front (optional)",
       "allow_from": []
     }
@@ -30,6 +30,6 @@
   "api": {
     "host": "0.0.0.0",
     "port": 8080,
-    "api_key": "YOUR_API_KEY"
+    "api_key": "$H1V3_API_KEY"
   }
 }

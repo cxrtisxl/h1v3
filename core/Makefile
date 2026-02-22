@@ -17,11 +17,14 @@ clean:
 # Example: make cold-start simple_dev.json
 PRESET := $(or $(word 2,$(MAKECMDGOALS)),default.json)
 
+ENV_FILE_FLAG := $(if $(wildcard .env),--env-file .env,)
+
 cold-start: build
 	docker volume rm -f h1v3-data
 	docker build -t h1v3 .
 	docker run -it --rm \
 		-p 8080:8080 \
+		$(ENV_FILE_FLAG) \
 		-v $(PWD)/config.json:/config.json \
 		-v h1v3-data:/data \
 		-v $(PWD)/presets/$(PRESET):/data/preset.json:ro \

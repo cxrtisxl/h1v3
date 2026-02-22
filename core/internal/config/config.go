@@ -81,6 +81,8 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: parse %s: %w", path, err)
 	}
 
+	cfg.resolveEnvRefs()
+
 	if cfg.Hive.PresetFile != "" {
 		configDir := filepath.Dir(path)
 		pf, err := loadPresetFile(configDir, cfg.Hive.DataDir, cfg.Hive.PresetFile)
@@ -223,6 +225,34 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("config validation failed:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
+}
+
+// resolveEnv checks if s is an env var reference (e.g. "$VAR" or "${VAR}")
+// and returns the resolved value. Non-references are returned as-is.
+func resolveEnv(s string) string {
+	if !strings.HasPrefix(s, "$") {
+		return s
+	}
+	name := strings.TrimPrefix(s, "$")
+	name = strings.TrimPrefix(name, "{")
+	name = strings.TrimSuffix(name, "}")
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return s
+}
+
+// resolveEnvRefs resolves env var references in secret fields.
+func (c *Config) resolveEnvRefs() {
+	for name, p := range c.Providers {
+		p.APIKey = resolveEnv(p.APIKey)
+		c.Providers[name] = p
+	}
+	if c.Connectors.Telegram != nil {
+		c.Connectors.Telegram.Token = resolveEnv(c.Connectors.Telegram.Token)
+	}
+	c.API.Key = resolveEnv(c.API.Key)
+	c.Tools.BraveAPIKey = resolveEnv(c.Tools.BraveAPIKey)
 }
 
 func getenv(key, fallback string) string {

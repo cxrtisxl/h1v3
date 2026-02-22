@@ -349,6 +349,59 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 }
 
+func TestLoad_EnvVarRefs(t *testing.T) {
+	t.Setenv("TEST_PROVIDER_KEY", "sk-resolved")
+	t.Setenv("TEST_TG_TOKEN", "tg-resolved")
+	t.Setenv("TEST_API_KEY", "api-resolved")
+
+	dir := t.TempDir()
+	config := `{
+  "hive": { "id": "h", "data_dir": "/data" },
+  "providers": {
+    "default": { "api_key": "$TEST_PROVIDER_KEY", "model": "m" }
+  },
+  "connectors": {
+    "telegram": { "token": "${TEST_TG_TOKEN}", "allow_from": [] }
+  },
+  "api": { "host": "0.0.0.0", "port": 8080, "api_key": "$TEST_API_KEY" }
+}`
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644)
+
+	cfg, err := Load(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Providers["default"].APIKey != "sk-resolved" {
+		t.Errorf("provider api_key = %q, want %q", cfg.Providers["default"].APIKey, "sk-resolved")
+	}
+	if cfg.Connectors.Telegram.Token != "tg-resolved" {
+		t.Errorf("telegram token = %q, want %q", cfg.Connectors.Telegram.Token, "tg-resolved")
+	}
+	if cfg.API.Key != "api-resolved" {
+		t.Errorf("api key = %q, want %q", cfg.API.Key, "api-resolved")
+	}
+}
+
+func TestLoad_EnvVarRefs_LiteralFallthrough(t *testing.T) {
+	dir := t.TempDir()
+	config := `{
+  "hive": { "id": "h", "data_dir": "/data" },
+  "providers": {
+    "default": { "api_key": "sk-literal-key", "model": "m" }
+  },
+  "api": { "host": "0.0.0.0", "port": 8080 }
+}`
+	os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644)
+
+	cfg, err := Load(filepath.Join(dir, "config.json"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Providers["default"].APIKey != "sk-literal-key" {
+		t.Errorf("literal api_key = %q, want %q", cfg.Providers["default"].APIKey, "sk-literal-key")
+	}
+}
+
 func TestLoadFromPlatform_WithPreset(t *testing.T) {
 	dataDir := t.TempDir()
 

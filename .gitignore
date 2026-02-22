@@ -10,5 +10,7 @@ monitor/.vercel/
 .DS_Store
 
 # Env
-.env*.local
+.env
+.env*
+!.env.example
 *.pem
