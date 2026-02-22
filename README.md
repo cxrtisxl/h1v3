@@ -42,10 +42,6 @@ cd core && make build
 # Run with a config file
 bin/h1v3d --config config.json -v
 
-# Or try the single-agent CLI
-OPENAI_API_KEY=sk-... bin/h1v3ctl run
+# Or run with Docker (cold start, wipes data)
+make cold-start default.json
 ```
-
-## License
-
-Private.
