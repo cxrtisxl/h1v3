@@ -5,34 +5,52 @@ Ticket-based multi-agent runtime in Go. Agents communicate through tickets (stru
 ## Architecture
 
 ```
-                         +-----------+
-  Telegram / Slack /     |  h1v3d    |     REST API
-  Webhook  ───────────►  |  daemon   |  ◄──── h1v3ctl
-                         +-----+-----+
-                               |
-            +------------------+------------------+
-            |                  |                  |
-      +-----+-----+     +-----+-----+     +-----+-----+
-      |   front    |     |   coder   |     |  reviewer  |
-      |   agent    |     |   agent   |     |   agent    |
-      +-----+-----+     +-----+-----+     +-----+-----+
-            |                  |                  |
-            +----------+------+------+------------+
-                       |             |
-                 +-----+-----+ +----+------+
-                 |  Ticket    | |  Memory   |
-                 |  Store     | |  Store    |
-                 |  (SQLite)  | |  (.md)    |
-                 +-----------+ +-----------+
+  Telegram / Slack /         REST API
+  Webhook                    h1v3ctl
+       |                        |
+       v                        v
+  +-----------+          +-----------+
+  | Connector |          |    API    |
+  +-----------+          +-----------+
+       |                        |
+       v                        v
+  +-----------+          +-----------+
+  |  Session  |          |   Hive    |
+  |  Manager  |          |  Service  |
+  +-----------+          +-----------+
+       |                        |
+       +----------+-------------+
+                  |
+                  v
+       +---------------------+
+       |      Registry       |
+       |   (message router)  |
+       +---------------------+
+          |         |        |
+          v         v        v
+       +------+ +------+ +--------+
+       |front | |coder | |reviewer|
+       |agent | |agent | | agent  |
+       +------+ +------+ +--------+
+          |         |        |
+          +----+----+--------+
+               |         |
+         +-----+---+ +---+-----+
+         | Ticket  | | Memory  |
+         | Store   | | Store   |
+         | (SQLite)| | (.md)   |
+         +---------+ +---------+
 ```
 
 **Key concepts:**
 
-- **Agents** run as goroutines, each with their own tool registry, memory store, and inbox
-- **Front Agent** handles external messages synchronously — runs the ReAct loop inline, returns the response directly to the connector. Maintains per-chat sessions (`chatID → ticketID`) so conversation context is preserved across messages. `/new` and `/start` reset the session.
+- **Registry (Router)** is the central message broker. All messages — from connectors, the API, and between agents — flow through the Registry. It persists messages to SQLite and delivers them to agent inboxes or external sinks.
+- **Connectors** bridge external platforms (Telegram, Slack, webhooks) to the Registry via the SessionManager. They do **not** talk directly to agents.
+- **SessionManager** maps external chat IDs to tickets, maintaining conversation context across messages. `/new` and `/start` reset the session.
+- **Agents** run as goroutines, each with their own tool registry, memory store, and inbox channel
 - **Tickets** are structured conversations routed between agents (stored in SQLite)
 - **Tools** follow a ReAct loop: LLM calls tools, gets results, reasons, repeats
-- **Connectors** bridge external platforms (Telegram, Slack, webhooks) to the front agent
+- **Sinks** deliver outbound messages back to external platforms (e.g., Telegram) when an agent routes to `_external`
 - **Providers** abstract LLM backends (OpenAI-compatible, native Anthropic)
 
 ## Quick Start
@@ -286,13 +304,13 @@ To connect a Telegram bot, set the token in `config.json`:
 }
 ```
 
-`agent_id` specifies which agent handles Telegram messages. If omitted, the first agent in the preset is used.
+`agent_id` specifies which agent receives inbound Telegram messages (routed via the SessionManager → Registry). If omitted, the first agent in the preset is used.
 
 Or via environment variable: `H1V3_TELEGRAM_TOKEN`. Optionally restrict access with `H1V3_TELEGRAM_ALLOW_FROM` (comma-separated user IDs).
 
 Get a bot token from [@BotFather](https://t.me/BotFather) on Telegram.
 
-When a Telegram connector is configured, the bot maintains a per-chat session. Each chat gets its own ticket, and messages within the same chat accumulate as conversation history so the agent has full context.
+When a Telegram connector is configured, inbound messages go through the SessionManager which creates/reuses tickets and routes them through the Registry to the target agent. Responses flow back through a registered sink that maps ticket IDs to Telegram chat IDs. Each chat gets its own ticket, and messages within the same chat accumulate as conversation history so the agent has full context.
 
 **Commands:**
 
@@ -307,6 +325,18 @@ Session lifecycle:
 2. Subsequent messages reuse the same ticket (conversation context preserved)
 3. `/new` or `/start` closes the current ticket and clears the session
 4. The next message after reset creates a new ticket
+
+## Monitor
+
+The Monitor is a Next.js web dashboard for observing the hive in real time. It connects to the h1v3d REST API and shows agents, tickets, conversations, and logs.
+
+```bash
+cd monitor    # from the repo root (sibling of core/)
+npm install
+npm run dev   # opens on http://localhost:3000
+```
+
+On first load, enter the daemon's API URL (default `http://localhost:8080`) and the API key if one is configured.
 
 ## Tools
 
@@ -331,25 +361,27 @@ MCP tools from external servers are registered with the `mcp_{server}_{tool}` pr
 ## Project Structure
 
 ```
-cmd/
-  h1v3d/          Daemon entry point
-  h1v3ctl/        CLI entry point
-internal/
-  agent/          Agent core, ReAct loop, skills, sub-agents
-  api/            REST API server
-  config/         Configuration loading (file, env, platform)
-  connector/
-    telegram/     Telegram bot (long-poll)
-    slack/        Slack bot (Socket Mode)
-    webhook/      Generic HTTP webhook ingress
-  memory/         Scoped memory store + consolidation
-  provider/       LLM providers (OpenAI, Anthropic)
-  registry/       Agent registry, ticket routing, compaction
-  scheduler/      Cron-based agent wake-up scheduling
-  ticket/         Ticket store (SQLite)
-  tool/           Tool interface, built-in tools, MCP client
-pkg/
-  protocol/       Shared types (messages, tickets, agents, LLM)
+core/                   This directory — the Go runtime
+  cmd/
+    h1v3d/              Daemon entry point
+    h1v3ctl/            CLI entry point
+  internal/
+    agent/              Agent core, ReAct loop, session manager, worker
+    api/                REST API server
+    config/             Configuration loading (file, env, platform)
+    connector/
+      telegram/         Telegram bot (long-poll)
+      slack/            Slack bot (Socket Mode)
+      webhook/          Generic HTTP webhook ingress
+    memory/             Scoped memory store + consolidation
+    provider/           LLM providers (OpenAI, Anthropic)
+    registry/           Registry (message router), ticket routing, sinks
+    scheduler/          Cron-based agent wake-up scheduling
+    ticket/             Ticket store (SQLite)
+    tool/               Tool interface, built-in tools, MCP client
+  pkg/
+    protocol/           Shared types (messages, tickets, agents, LLM)
+monitor/                Next.js web dashboard (sibling of core/)
 ```
 
 ## Tests
