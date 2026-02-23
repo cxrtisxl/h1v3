@@ -64,21 +64,21 @@ function buildGraph(agents: Agent[], tickets: Ticket[]) {
     });
   }
 
-  // Ensure _external node exists
+  // Always show _external node
+  nodes.set("_external", {
+    id: "_external",
+    label: "External",
+    kind: "external",
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    radius: 28,
+  });
+
   const ensureActor = (id: string) => {
     if (nodes.has(id)) return;
-    if (id === "_external") {
-      nodes.set(id, {
-        id,
-        label: "_external",
-        kind: "external",
-        x: 0,
-        y: 0,
-        vx: 0,
-        vy: 0,
-        radius: 28,
-      });
-    } else if (!agentIds.has(id)) {
+    if (!agentIds.has(id)) {
       // Unknown actor – treat like an external entity
       nodes.set(id, {
         id,
@@ -338,17 +338,28 @@ function draw(
         const logoSize = r * 1.2;
         ctx.drawImage(logo, n.x - logoSize / 2, n.y - logoSize / 2, logoSize, logoSize);
       }
-    } else {
-      let fill: string;
-      let stroke: string;
+    } else if (n.kind === "external") {
+      // Filled background + white border + person icon
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.agentBg;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.external;
+      ctx.lineWidth = (isActive ? 3.5 : 2.5) / cam.zoom;
+      ctx.stroke();
 
-      if (n.kind === "external") {
-        fill = COLORS.external;
-        stroke = COLORS.externalStroke;
-      } else {
-        fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
-        stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
-      }
+      // Person icon (head + shoulders)
+      ctx.fillStyle = COLORS.external;
+      ctx.beginPath();
+      ctx.arc(n.x, n.y - r * 0.15, r * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(n.x, n.y + r * 0.35, r * 0.35, r * 0.22, 0, Math.PI, 0, true);
+      ctx.fill();
+    } else {
+      // Ticket nodes
+      const fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
+      const stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -396,29 +407,45 @@ function screenToWorld(sx: number, sy: number, cam: Camera): { wx: number; wy: n
 }
 
 /* ------------------------------------------------------------------ */
+/*  Persistent state (survives SPA navigation)                         */
+/* ------------------------------------------------------------------ */
+
+interface PersistedState {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  camera: Camera;
+  strength: number;
+  showClosed: boolean;
+  pinAgents: boolean;
+}
+
+let persisted: PersistedState | null = null;
+
+/* ------------------------------------------------------------------ */
 /*  Page component                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function GraphPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const nodesRef = useRef<GraphNode[]>([]);
-  const edgesRef = useRef<GraphEdge[]>([]);
+  const nodesRef = useRef<GraphNode[]>(persisted?.nodes ?? []);
+  const edgesRef = useRef<GraphEdge[]>(persisted?.edges ?? []);
   const animRef = useRef<number>(0);
   const hoveredRef = useRef<string | null>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null);
-  const camRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
-  const strengthRef = useRef(1);
+  const camRef = useRef<Camera>(persisted?.camera ?? { x: 0, y: 0, zoom: 1 });
+  const strengthRef = useRef(persisted?.strength ?? 1);
   const logoRef = useRef<HTMLImageElement | null>(null);
   const sizeRef = useRef({ w: 800, h: 600 });
 
-  const [loading, setLoading] = useState(true);
-  const [strength, setStrength] = useState(1);
-  const [showClosed, setShowClosed] = useState(true);
-  const showClosedRef = useRef(true);
-  const [pinAgents, setPinAgents] = useState(false);
-  const pinAgentsRef = useRef(false);
+  const hadPersisted = useRef(!!persisted);
+  const [loading, setLoading] = useState(!persisted);
+  const [strength, setStrength] = useState(persisted?.strength ?? 1);
+  const [showClosed, setShowClosed] = useState(persisted?.showClosed ?? true);
+  const showClosedRef = useRef(persisted?.showClosed ?? true);
+  const [pinAgents, setPinAgents] = useState(persisted?.pinAgents ?? false);
+  const pinAgentsRef = useRef(persisted?.pinAgents ?? false);
   const [, setTick] = useState(0); // force re-render for legend
 
   // Preload logo
@@ -451,7 +478,7 @@ export default function GraphPage() {
       ]);
       const { nodes: freshNodes, edges } = buildGraph(agents, tickets);
 
-      if (initial) {
+      if (initial && !hadPersisted.current) {
         nodesRef.current = freshNodes;
         edgesRef.current = edges;
         requestAnimationFrame(() => {
@@ -489,10 +516,27 @@ export default function GraphPage() {
   }, [resize]);
 
   useEffect(() => {
-    loadGraph(true).finally(() => setLoading(false));
+    loadGraph(true).finally(() => {
+      hadPersisted.current = false;
+      setLoading(false);
+    });
     const interval = setInterval(() => loadGraph(false), POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [loadGraph]);
+
+  // Save state on unmount
+  useEffect(() => {
+    return () => {
+      persisted = {
+        nodes: nodesRef.current,
+        edges: edgesRef.current,
+        camera: { ...camRef.current },
+        strength: strengthRef.current,
+        showClosed: showClosedRef.current,
+        pinAgents: pinAgentsRef.current,
+      };
+    };
+  }, []);
 
   // Animation loop
   useEffect(() => {
