@@ -18,7 +18,8 @@ type Agent struct {
 	Tools         *tool.Registry
 	Logger        *slog.Logger
 	MaxIterations int
-	Memory        *memory.Store // optional, injected at startup
+	Memory        *memory.Store  // optional, injected at startup
+	Skills        *SkillsLoader  // optional, injected at startup
 }
 
 // New creates a new Agent with sensible defaults.

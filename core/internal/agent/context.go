@@ -52,6 +52,21 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 		}
 	}
 
+	// 3c. Skills
+	if a.Skills != nil {
+		if summary := a.Skills.BuildSkillsSummary(); summary != "" {
+			b.WriteString("# Skills\n")
+			b.WriteString("Skills are instruction bundles loaded into your context. Always-loaded skills are included below. On-demand skills can be loaded with the `load_skill` tool when needed.\n\n")
+			b.WriteString(summary)
+			b.WriteString("\n")
+		}
+		if ctx := a.Skills.BuildAlwaysLoadedContext(); ctx != "" {
+			b.WriteString("# Skill Instructions\n")
+			b.WriteString(ctx)
+			b.WriteString("\n\n")
+		}
+	}
+
 	// 4. Ticket context
 	if ticket != nil {
 		b.WriteString("# Current Ticket\n")

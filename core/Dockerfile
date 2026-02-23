@@ -12,7 +12,8 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata
 COPY --from=builder /build/h1v3d /usr/local/bin/
 COPY --from=builder /build/h1v3ctl /usr/local/bin/
-RUN mkdir -p /data
+RUN mkdir -p /data /data/skills
+COPY skills/ /data/skills/
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s \

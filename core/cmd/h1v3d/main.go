@@ -161,6 +161,8 @@ func main() {
 
 		ag := agent.New(spec, prov, agentTools)
 		ag.Memory = mem
+		ag.Skills = agent.LoadSkills(cfg.Hive.DataDir, spec.Directory)
+		register(&tool.LoadSkillTool{Provider: ag.Skills})
 		ag.Logger = logger.With("agent", spec.ID)
 
 		if err := reg.RegisterAgent(spec, ag); err != nil {
