@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -220,6 +221,47 @@ func main() {
 					return tgConn.Send(ctx, connector.OutboundMessage{
 						ChatID:  msg.ChatID,
 						Content: "Starting a new conversation. Send me your message!",
+					})
+				}
+				if cmd == "/parallel" || strings.HasPrefix(cmd, "/parallel ") {
+					text := strings.TrimPrefix(cmd, "/parallel")
+					text = strings.TrimSpace(text)
+					if text == "" {
+						text = "New parallel conversation"
+					}
+					ticketID, err := sm.StartParallelSession(msg.ChatID, text)
+					if err != nil {
+						return tgConn.Send(ctx, connector.OutboundMessage{
+							ChatID:  msg.ChatID,
+							Content: fmt.Sprintf("Failed to create parallel session: %v", err),
+						})
+					}
+					_ = tgConn.Send(ctx, connector.OutboundMessage{
+						ChatID:  msg.ChatID,
+						Content: fmt.Sprintf("Parallel conversation started (ticket %s). Send your message!", ticketID),
+					})
+					if text != "New parallel conversation" {
+						return sm.HandleInbound(msg.ChatID, text)
+					}
+					return nil
+				}
+				if strings.HasPrefix(cmd, "/close ") {
+					ticketID := strings.TrimSpace(strings.TrimPrefix(cmd, "/close"))
+					if ticketID == "" {
+						return tgConn.Send(ctx, connector.OutboundMessage{
+							ChatID:  msg.ChatID,
+							Content: "Usage: /close <ticket_id>",
+						})
+					}
+					if err := sm.CloseTicket(ticketID, "manually closed via /close"); err != nil {
+						return tgConn.Send(ctx, connector.OutboundMessage{
+							ChatID:  msg.ChatID,
+							Content: fmt.Sprintf("Failed to close ticket: %v", err),
+						})
+					}
+					return tgConn.Send(ctx, connector.OutboundMessage{
+						ChatID:  msg.ChatID,
+						Content: fmt.Sprintf("Ticket %s closed.", ticketID),
 					})
 				}
 				return sm.HandleInbound(msg.ChatID, msg.Content)

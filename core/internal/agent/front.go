@@ -119,6 +119,40 @@ func (sm *SessionManager) getOrCreateSession(chatID, content string) (string, er
 	return ticket.ID, nil
 }
 
+// StartParallelSession creates a new ticket for the chat without closing
+// the existing one. Returns the new ticket ID.
+func (sm *SessionManager) StartParallelSession(chatID, content string) (string, error) {
+	ticket, err := sm.Router.CreateTicket(
+		"_external",
+		truncate(content, 60),
+		"",  // external sessions have no predefined goal
+		"",  // no parent ticket
+		[]string{sm.FrontAgentID},
+		[]string{"external", "chat:" + chatID},
+	)
+	if err != nil {
+		return "", err
+	}
+
+	// Update session mapping to point at the new ticket
+	sm.mu.Lock()
+	sm.sessions[chatID] = ticket.ID
+	sm.mu.Unlock()
+
+	sm.Logger.Info("parallel session created", "chat_id", chatID, "ticket", ticket.ID)
+
+	if sm.OnSessionCreated != nil {
+		sm.OnSessionCreated(chatID, ticket.ID)
+	}
+
+	return ticket.ID, nil
+}
+
+// CloseTicket closes an arbitrary ticket by ID.
+func (sm *SessionManager) CloseTicket(ticketID, summary string) error {
+	return sm.Router.CloseTicket(ticketID, summary)
+}
+
 func truncate(s string, max int) string {
 	if len(s) <= max {
 		return s

@@ -192,7 +192,9 @@ func (c *Connector) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 		help := strings.Join([]string{
 			"Available commands:",
 			"/start — Start the bot",
-			"/new — Start a new conversation",
+			"/new — Start a new conversation (closes current)",
+			"/parallel — Start a parallel conversation (keeps current open)",
+			"/close <id> — Close a ticket by ID",
 			"/help — Show this help message",
 			"",
 			"Just send me a message to chat!",
