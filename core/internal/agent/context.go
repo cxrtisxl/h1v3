@@ -105,7 +105,7 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 	b.WriteString("- Be concise in responses.\n")
 	b.WriteString("- Use write_memory to persist important information you learn or decide (your name, user preferences, key facts). Memory survives across sessions — anything not written to memory will be forgotten.\n")
 	b.WriteString("\n# Ticket Lifecycle\n")
-	b.WriteString("- Always respond to tickets using respond_to_ticket — whether from a user or another agent.\n")
+	b.WriteString("- Always respond to tickets using respond_to_ticket (it automatically targets the current ticket). Do not output bare text as a response — use the tool so you can set goal_met when appropriate.\n")
 	b.WriteString("- To delegate work to another agent, use create_ticket with a clear title and a concrete goal (the specific condition that would satisfy the ticket). Use the optional `message` field to pass supporting data (e.g. research results, context) so the assignee has everything in the first message.\n")
 	b.WriteString("- Sub-tickets are linked automatically: when you create a ticket while working on another ticket, the new one becomes a child. When a child ticket is closed, its full conversation and summary are automatically relayed back to the parent ticket. Do NOT copy, repeat, or paraphrase sub-ticket content — it is already in the parent context.\n")
 	b.WriteString("- Only the ticket creator can close it.\n")
@@ -115,15 +115,31 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 	b.WriteString("- Do NOT make small talk or discuss the task beyond what was asked.\n")
 	b.WriteString("- After creating a sub-ticket, decide: if you need its result before you can continue, call wait. You will be woken when the sub-ticket resolves or a new message arrives.\n")
 	b.WriteString("- One response is usually enough. Provide the answer and stop.\n")
-	if ticket != nil && ticket.Goal != "" {
-		b.WriteString("- The ticket has a goal. If your response fully satisfies it (with the actual result, not just a delegation), end your message with: \"The ticket might be closed.\"\n")
+	b.WriteString("- IMPORTANT: When your response fully satisfies the ticket's goal, you MUST set `goal_met=true` on `respond_to_ticket`. This is required — without it the creator will not know the work is done.\n")
+
+	// Prominent reminder for the active responder
+	if ticket != nil && ticket.CreatedBy != a.Spec.ID && ticket.Goal != "" && ticket.Status == protocol.TicketOpen {
+		b.WriteString("\n## REMINDER: You are the responder on this ticket.\n")
+		fmt.Fprintf(&b, "The goal is: %s\n", ticket.Goal)
+		b.WriteString("When your response satisfies this goal, call `respond_to_ticket` with `goal_met=true`. Do NOT omit this flag.\n")
 	}
+
 	b.WriteString("\n## As the CREATOR (you opened the ticket):\n")
 	b.WriteString("- After receiving a response, evaluate whether the ticket's goal has been met.\n")
 	b.WriteString("- If the goal is satisfied, close the ticket IMMEDIATELY with close_ticket. Do not thank, acknowledge, or continue the conversation.\n")
 	b.WriteString("- If the goal is NOT satisfied, send ONE specific follow-up explaining what is still missing.\n")
 	b.WriteString("- Never leave a ticket open once its goal is met.\n")
 	b.WriteString("- When closing a ticket after a sub-ticket resolved, do NOT repeat the sub-ticket content in your summary or response. It is already in the parent context. Just reference it (e.g. \"Result provided above\").\n")
+
+	// Prominent instruction when creator receives an awaiting_close ticket
+	if ticket != nil && ticket.Status == protocol.TicketAwaitingClose && ticket.CreatedBy == a.Spec.ID {
+		b.WriteString("\n## IMPORTANT: Ticket is AWAITING CLOSE\n")
+		b.WriteString("The responder has indicated the goal is met (goal_met=true). You MUST:\n")
+		b.WriteString("1. Evaluate whether the response satisfies the ticket's goal.\n")
+		b.WriteString("2. If YES → close the ticket immediately with `close_ticket`.\n")
+		b.WriteString("3. If NO → respond with `respond_to_ticket` explaining what is missing (this reopens the ticket).\n")
+		b.WriteString("Do NOT create sub-tickets unless absolutely necessary.\n")
+	}
 
 	return b.String()
 }

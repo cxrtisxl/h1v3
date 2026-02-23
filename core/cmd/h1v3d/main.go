@@ -497,6 +497,10 @@ func (b *ticketBrokerAdapter) CloseTicket(ticketID, summary string) error {
 	return b.reg.CloseTicket(ticketID, summary)
 }
 
+func (b *ticketBrokerAdapter) UpdateTicketStatus(ticketID string, status protocol.TicketStatus) error {
+	return b.reg.UpdateTicketStatus(ticketID, status)
+}
+
 func (b *ticketBrokerAdapter) RouteMessage(msg protocol.Message) error {
 	return b.reg.RouteMessage(msg)
 }

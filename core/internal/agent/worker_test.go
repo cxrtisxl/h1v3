@@ -42,6 +42,17 @@ func (r *mockRouter) GetTicket(ticketID string) (*protocol.Ticket, error) {
 	return t, nil
 }
 
+func (r *mockRouter) UpdateTicketStatus(ticketID string, status protocol.TicketStatus) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.tickets[ticketID]
+	if !ok {
+		return fmt.Errorf("ticket %q not found", ticketID)
+	}
+	t.Status = status
+	return nil
+}
+
 func (r *mockRouter) ListSubTickets(parentID string) ([]*protocol.Ticket, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -62,10 +73,9 @@ func (r *mockRouter) getMessages() []protocol.Message {
 	return cp
 }
 
-func TestWorker_ProcessesMessage(t *testing.T) {
+func TestWorker_PlainTextDropped(t *testing.T) {
 	router := newMockRouter()
 
-	// The incoming message is already in ticket.Messages (persisted by RouteMessage)
 	incomingMsg := protocol.Message{
 		ID:        "m-001",
 		From:      "agent-a",
@@ -84,6 +94,7 @@ func TestWorker_ProcessesMessage(t *testing.T) {
 		Messages:  []protocol.Message{incomingMsg},
 	}
 
+	// Agent returns plain text without calling respond_to_ticket
 	prov := &mockProvider{
 		responses: []*protocol.ChatResponse{
 			{Content: "I received the message and processed it."},
@@ -115,29 +126,16 @@ func TestWorker_ProcessesMessage(t *testing.T) {
 		worker.Start(ctx)
 	}()
 
-	// Send the message to inbox
 	inbox <- incomingMsg
 
 	time.Sleep(200 * time.Millisecond)
 	cancel()
 	wg.Wait()
 
+	// Plain text output is dropped — no messages should be routed
 	msgs := router.getMessages()
-	if len(msgs) != 1 {
-		t.Fatalf("expected 1 routed message, got %d", len(msgs))
-	}
-	if msgs[0].From != "agent-b" {
-		t.Errorf("expected from 'agent-b', got %q", msgs[0].From)
-	}
-	if msgs[0].TicketID != "t-001" {
-		t.Errorf("expected ticket t-001, got %q", msgs[0].TicketID)
-	}
-	if msgs[0].Content != "I received the message and processed it." {
-		t.Errorf("unexpected content: %q", msgs[0].Content)
-	}
-	// Response goes to all ticket participants (created_by), not just msg.From
-	if len(msgs[0].To) != 1 || msgs[0].To[0] != "agent-a" {
-		t.Errorf("expected to ['agent-a'], got %v", msgs[0].To)
+	if len(msgs) != 0 {
+		t.Errorf("expected 0 routed messages (plain text dropped), got %d", len(msgs))
 	}
 }
 
@@ -229,6 +227,7 @@ func TestWorker_InboxClosed(t *testing.T) {
 		t.Fatal("worker did not stop after inbox close")
 	}
 }
+
 
 func TestWorker_ContextCancelled(t *testing.T) {
 	router := newMockRouter()

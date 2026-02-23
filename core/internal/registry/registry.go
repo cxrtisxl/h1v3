@@ -281,6 +281,11 @@ func (r *Registry) CountTickets(filter ticket.Filter) (int, error) {
 	return r.store.Count(filter)
 }
 
+// UpdateTicketStatus changes a ticket's status without closing it.
+func (r *Registry) UpdateTicketStatus(ticketID string, status protocol.TicketStatus) error {
+	return r.store.UpdateStatus(ticketID, status)
+}
+
 // ListSubTickets returns tickets whose parent_id matches the given ID.
 func (r *Registry) ListSubTickets(parentID string) ([]*protocol.Ticket, error) {
 	return r.store.List(ticket.Filter{ParentID: parentID})

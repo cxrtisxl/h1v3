@@ -21,6 +21,7 @@ type TicketBroker interface {
 	ListTickets(filter ticket.Filter) ([]*protocol.Ticket, error)
 	CountTickets(filter ticket.Filter) (int, error)
 	CloseTicket(ticketID, summary string) error
+	UpdateTicketStatus(ticketID string, status protocol.TicketStatus) error
 	RouteMessage(msg protocol.Message) error
 }
 
@@ -255,6 +256,12 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 		if !confirmed {
 			parentTicket, err := t.Broker.GetTicket(parentID)
 			if err == nil {
+				// Block sub-ticket creation when parent is awaiting_close
+				if parentTicket.Status == protocol.TicketAwaitingClose {
+					return "CONFIRMATION REQUIRED: The parent ticket is awaiting_close — the responder believes the goal is met. " +
+						"Evaluate the response and close the ticket first. If you genuinely need a new sub-ticket, " +
+						"call create_ticket again with confirmed=true AND reason explaining why.", nil
+				}
 				overlap := sameRecipientOverlap(parentTicket, to)
 				if len(overlap) > 0 {
 					return fmt.Sprintf(
@@ -310,24 +317,27 @@ type RespondToTicketTool struct {
 }
 
 func (t *RespondToTicketTool) Name() string        { return "respond_to_ticket" }
-func (t *RespondToTicketTool) Description() string  { return "Send a message on an existing ticket" }
+func (t *RespondToTicketTool) Description() string  { return "Send a response on the current ticket" }
 func (t *RespondToTicketTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"ticket_id": map[string]any{"type": "string", "description": "Ticket ID to respond to"},
-			"message":   map[string]any{"type": "string", "description": "Response message"},
+			"message":  map[string]any{"type": "string", "description": "Response message"},
+			"goal_met": map[string]any{"type": "boolean", "description": "Set to true when your response fully satisfies the ticket's goal (responders only)"},
 		},
-		"required": []string{"ticket_id", "message"},
+		"required": []string{"message"},
 	}
 }
 
 func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any) (string, error) {
-	ticketID := getString(params, "ticket_id")
+	ticketID := CurrentTicketFromContext(ctx)
 	message := getString(params, "message")
 
-	if ticketID == "" || message == "" {
-		return "", fmt.Errorf("respond_to_ticket: ticket_id and message are required")
+	if ticketID == "" {
+		return "", fmt.Errorf("respond_to_ticket: must be called within a ticket context")
+	}
+	if message == "" {
+		return "", fmt.Errorf("respond_to_ticket: message is required")
 	}
 
 	tk, err := t.Broker.GetTicket(ticketID)
@@ -337,6 +347,12 @@ func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any
 
 	if tk.Status == protocol.TicketClosed {
 		return "Ticket is closed — message not delivered.", nil
+	}
+
+	// goal_met validation: only responders (non-creators) may set it
+	goalMet, _ := params["goal_met"].(bool)
+	if goalMet && tk.CreatedBy == t.AgentID {
+		return "", fmt.Errorf("respond_to_ticket: only responders can set goal_met (you are the creator)")
 	}
 
 	recipients := collectRecipients(tk, t.AgentID)
@@ -350,18 +366,26 @@ func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any
 		Timestamp: time.Now(),
 	}
 
-	// Defer delivery for messages on the current ticket so that a
-	// close_ticket call later in the same turn suppresses inbox delivery.
-	currentTicket := CurrentTicketFromContext(ctx)
-	if ticketID == currentTicket {
-		deferMessage(ctx, msg)
-	} else {
-		if err := t.Broker.RouteMessage(msg); err != nil {
-			return "", fmt.Errorf("respond_to_ticket: %w", err)
-		}
-	}
+	// Defer delivery so that a close_ticket call later in the same turn
+	// can suppress inbox delivery.
+	deferMessage(ctx, msg)
 
 	markResponded(ctx)
+
+	// Status transitions
+	var statusNote string
+	if goalMet && tk.Status == protocol.TicketOpen {
+		if err := t.Broker.UpdateTicketStatus(ticketID, protocol.TicketAwaitingClose); err != nil {
+			return "", fmt.Errorf("respond_to_ticket: update status: %w", err)
+		}
+		statusNote = " (status → awaiting_close)"
+	} else if tk.Status == protocol.TicketAwaitingClose && tk.CreatedBy == t.AgentID {
+		// Creator responding on an awaiting_close ticket reopens it
+		if err := t.Broker.UpdateTicketStatus(ticketID, protocol.TicketOpen); err != nil {
+			return "", fmt.Errorf("respond_to_ticket: update status: %w", err)
+		}
+		statusNote = " (status → open)"
+	}
 
 	// Log prompt context for this message
 	if t.Logger != nil {
@@ -377,7 +401,7 @@ func (t *RespondToTicketTool) Execute(ctx context.Context, params map[string]any
 		}
 	}
 
-	return fmt.Sprintf("Message sent on ticket %s to %s", ticketID, strings.Join(recipients, ", ")), nil
+	return fmt.Sprintf("Message sent on ticket %s to %s%s", ticketID, strings.Join(recipients, ", "), statusNote), nil
 }
 
 // --- CloseTicketTool ---
@@ -414,21 +438,25 @@ func (t *CloseTicketTool) Execute(_ context.Context, params map[string]any) (str
 		return "", fmt.Errorf("close_ticket: %w", err)
 	}
 	if tk.CreatedBy != t.AgentID {
-		return "", fmt.Errorf("close_ticket: only the creator (%s) can close this ticket", tk.CreatedBy)
+		return fmt.Sprintf("You cannot close this ticket — only the creator (%s) can close it. Use respond_to_ticket to send your response instead.", tk.CreatedBy), nil
 	}
 
-	// Block closing if there are open sub-tickets
-	openStatus := protocol.TicketOpen
-	openSubs, err := t.Broker.ListTickets(ticket.Filter{ParentID: ticketID, Status: &openStatus})
-	if err != nil {
-		return "", fmt.Errorf("close_ticket: failed to check sub-tickets: %w", err)
-	}
-	if len(openSubs) > 0 {
-		var ids []string
-		for _, s := range openSubs {
-			ids = append(ids, fmt.Sprintf("%s (%s)", s.ID, s.Title))
+	// Block closing if there are open or awaiting_close sub-tickets
+	var unclosedSubs []*protocol.Ticket
+	for _, st := range []protocol.TicketStatus{protocol.TicketOpen, protocol.TicketAwaitingClose} {
+		s := st
+		subs, err := t.Broker.ListTickets(ticket.Filter{ParentID: ticketID, Status: &s})
+		if err != nil {
+			return "", fmt.Errorf("close_ticket: failed to check sub-tickets: %w", err)
 		}
-		return "", fmt.Errorf("close_ticket: cannot close — %d open sub-ticket(s) remain: %s. Use wait to wait for them to resolve.", len(openSubs), strings.Join(ids, ", "))
+		unclosedSubs = append(unclosedSubs, subs...)
+	}
+	if len(unclosedSubs) > 0 {
+		var ids []string
+		for _, s := range unclosedSubs {
+			ids = append(ids, fmt.Sprintf("%s (%s) [%s]", s.ID, s.Title, s.Status))
+		}
+		return "", fmt.Errorf("close_ticket: cannot close — %d unclosed sub-ticket(s) remain: %s. Use wait to wait for them to resolve.", len(unclosedSubs), strings.Join(ids, ", "))
 	}
 
 	if err := t.Broker.CloseTicket(ticketID, summary); err != nil {
@@ -454,7 +482,7 @@ func (t *SearchTicketsTool) Parameters() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"query":       map[string]any{"type": "string", "description": "Text search on ticket title and summary"},
-			"status":      map[string]any{"type": "string", "enum": []string{"open", "closed"}, "description": "Filter by ticket status"},
+			"status":      map[string]any{"type": "string", "enum": []string{"open", "awaiting_close", "closed"}, "description": "Filter by ticket status"},
 			"participant": map[string]any{"type": "string", "description": "Filter by agent ID (created_by or assigned to)"},
 			"limit":       map[string]any{"type": "integer", "description": "Max results to return (default 20)"},
 		},

@@ -238,7 +238,7 @@ func cmdAgentsShow(id string) {
 
 func cmdTicketsList(args []string) {
 	fs := flag.NewFlagSet("tickets list", flag.ExitOnError)
-	status := fs.String("status", "", "Filter by status (open|closed)")
+	status := fs.String("status", "", "Filter by status (open|awaiting_close|closed)")
 	agentID := fs.String("agent", "", "Filter by agent")
 	limit := fs.Int("limit", 50, "Max results")
 	fs.Parse(args)

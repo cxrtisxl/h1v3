@@ -22,6 +22,7 @@ type MessageRouter interface {
 	RouteMessage(msg protocol.Message) error
 	GetTicket(ticketID string) (*protocol.Ticket, error)
 	ListSubTickets(parentID string) ([]*protocol.Ticket, error)
+	UpdateTicketStatus(ticketID string, status protocol.TicketStatus) error
 }
 
 // Worker runs an agent's event loop, processing messages from an inbox channel.
@@ -154,6 +155,30 @@ func (w *Worker) handleMessage(ctx context.Context, msg protocol.Message, attemp
 		return
 	}
 
+	// If the agent returned plain text without calling respond_to_ticket,
+	// nudge it to use the tool and re-run once.
+	if !*responded && strings.TrimSpace(response) != "" {
+		w.Agent.Logger.Warn("agent returned plain text without calling respond_to_ticket, retrying with nudge",
+			"agent", agentID,
+			"ticket", msg.TicketID,
+		)
+		nudgeMessages := append(messages,
+			protocol.ChatMessage{Role: "assistant", Content: response},
+			protocol.ChatMessage{
+				Role:    "user",
+				Content: "[system] Do not reply with plain text. Use the respond_to_ticket tool to send your response. Set goal_met=true if the goal is satisfied.",
+			},
+		)
+		_, err = w.Agent.RunWithHistory(ticketCtx, nudgeMessages)
+		if err != nil {
+			w.Agent.Logger.Error("nudge retry failed",
+				"agent", agentID,
+				"ticket", msg.TicketID,
+				"error", err,
+			)
+		}
+	}
+
 	// Flush deferred messages (respond_to_ticket on the current ticket).
 	// RouteMessage checks ticket status and skips inbox delivery on closed tickets.
 	for _, dm := range *deferredMsgs {
@@ -165,62 +190,4 @@ func (w *Worker) handleMessage(ctx context.Context, msg protocol.Message, attemp
 			)
 		}
 	}
-
-	// Skip auto-response if agent already responded via respond_to_ticket,
-	// or if the final LLM output is empty.
-	if *responded || strings.TrimSpace(response) == "" {
-		return
-	}
-
-	// Re-check ticket status — it may have been closed during the ReAct loop
-	// (e.g. via close_ticket). Don't deliver messages on closed tickets.
-	if freshTicket, err := w.Router.GetTicket(msg.TicketID); err == nil && freshTicket.Status == protocol.TicketClosed {
-		w.Agent.Logger.Debug("ticket closed during processing, skipping auto-response",
-			"agent", agentID,
-			"ticket", msg.TicketID,
-		)
-		return
-	}
-
-	// Route response to all ticket participants (except self)
-	recipients := ticketRecipients(ticket, agentID)
-	respMsg := protocol.Message{
-		ID:        fmt.Sprintf("resp-%d", time.Now().UnixNano()),
-		From:      agentID,
-		To:        recipients,
-		Content:   response,
-		TicketID:  msg.TicketID,
-		Timestamp: time.Now(),
-	}
-
-	// Log prompt context for this auto-response
-	if ctxJSON, err := json.Marshal(messages); err == nil {
-		w.Agent.Logger.Info("prompt_context",
-			"msg_id", respMsg.ID,
-			"agent", agentID,
-			"ticket", msg.TicketID,
-			"context", string(ctxJSON),
-		)
-	}
-
-	if err := w.Router.RouteMessage(respMsg); err != nil {
-		w.Agent.Logger.Error("failed to route response",
-			"agent", agentID,
-			"ticket", msg.TicketID,
-			"error", err,
-		)
-	}
-}
-
-// ticketRecipients returns all ticket participants except the sender.
-func ticketRecipients(tk *protocol.Ticket, sender string) []string {
-	seen := map[string]bool{sender: true}
-	var out []string
-	for _, id := range append([]string{tk.CreatedBy}, tk.WaitingOn...) {
-		if !seen[id] {
-			out = append(out, id)
-			seen[id] = true
-		}
-	}
-	return out
 }

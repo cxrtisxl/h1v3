@@ -6,8 +6,9 @@ import "time"
 type TicketStatus string
 
 const (
-	TicketOpen   TicketStatus = "open"
-	TicketClosed TicketStatus = "closed"
+	TicketOpen          TicketStatus = "open"
+	TicketAwaitingClose TicketStatus = "awaiting_close"
+	TicketClosed        TicketStatus = "closed"
 )
 
 // Ticket is an isolated chat context tied to a specific task.
