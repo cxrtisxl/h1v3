@@ -52,15 +52,16 @@ func (a *Agent) BuildSystemPrompt(ticket *protocol.Ticket, subTickets []*protoco
 		}
 	}
 
-	// 3c. Skills
-	if a.Skills != nil {
-		if summary := a.Skills.BuildSkillsSummary(); summary != "" {
+	// 3c. Skills (reloaded from disk each time to pick up new installs)
+	if len(a.SkillDirs) > 0 || len(a.ExtraSkillDirs) > 0 {
+		skills := LoadSkills(a.SkillDirs, a.ExtraSkillDirs)
+		if summary := skills.BuildSkillsSummary(); summary != "" {
 			b.WriteString("# Skills\n")
 			b.WriteString("Skills are instruction bundles loaded into your context. Always-loaded skills are included below. On-demand skills can be loaded with the `load_skill` tool when needed.\n\n")
 			b.WriteString(summary)
 			b.WriteString("\n")
 		}
-		if ctx := a.Skills.BuildAlwaysLoadedContext(); ctx != "" {
+		if ctx := skills.BuildAlwaysLoadedContext(); ctx != "" {
 			b.WriteString("# Skill Instructions\n")
 			b.WriteString(ctx)
 			b.WriteString("\n\n")

@@ -2,6 +2,7 @@
   "hive": {
     "id": "my-hive",
     "data_dir": "/data",
+    "skill_paths": [".moltbot/skills"],
     "front_agent_id": "front",
     "compact_threshold": 8000,
     "preset_file": "preset.json (always preset.json for running in a Docker container)"

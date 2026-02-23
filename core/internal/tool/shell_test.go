@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ func TestExec_BasicCommand(t *testing.T) {
 
 func TestExec_WorkDir(t *testing.T) {
 	dir := t.TempDir()
+	// Resolve symlinks for macOS (/var → /private/var)
+	dir, _ = filepath.EvalSymlinks(dir)
 	tool := &ExecTool{WorkDir: dir}
 	result, err := tool.Execute(context.Background(), map[string]any{
 		"command": "pwd",

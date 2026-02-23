@@ -52,7 +52,7 @@ Use the linear tools to create and manage issues.
 
 func TestLoadSkills(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	if len(loader.All()) != 2 {
 		t.Fatalf("expected 2 skills, got %d", len(loader.All()))
@@ -60,7 +60,7 @@ func TestLoadSkills(t *testing.T) {
 }
 
 func TestLoadSkills_EmptyDir(t *testing.T) {
-	loader := LoadSkills(t.TempDir())
+	loader := LoadSkills([]string{t.TempDir()}, nil)
 	if len(loader.All()) != 0 {
 		t.Errorf("expected 0 skills, got %d", len(loader.All()))
 	}
@@ -68,7 +68,7 @@ func TestLoadSkills_EmptyDir(t *testing.T) {
 
 func TestAlwaysLoaded(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	always := loader.AlwaysLoaded()
 	if len(always) != 1 {
@@ -84,7 +84,7 @@ func TestAlwaysLoaded(t *testing.T) {
 
 func TestSkillGet(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	s, ok := loader.Get("linear-api")
 	if !ok {
@@ -100,7 +100,7 @@ func TestSkillGet(t *testing.T) {
 
 func TestSkillFrontmatter(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	s, _ := loader.Get("writing-style")
 	if s.Description != "Concise professional writing guidelines" {
@@ -117,7 +117,7 @@ func TestSkillFrontmatter(t *testing.T) {
 
 func TestSkillReferences(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	s, _ := loader.Get("writing-style")
 	if len(s.References) != 1 {
@@ -134,7 +134,7 @@ func TestSkillReferences(t *testing.T) {
 
 func TestSkillScripts(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	s, _ := loader.Get("writing-style")
 	if len(s.Scripts) != 1 {
@@ -147,7 +147,7 @@ func TestSkillScripts(t *testing.T) {
 
 func TestSkillNoReferencesOrScripts(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	s, _ := loader.Get("linear-api")
 	if len(s.References) != 0 {
@@ -192,7 +192,7 @@ name: Writing Style NEW
 New instructions.
 `), 0o644)
 
-	loader := LoadSkills(dir1, dir2)
+	loader := LoadSkills([]string{dir1, dir2}, nil)
 
 	if len(loader.All()) != 2 {
 		t.Fatalf("expected 2 skills (shared + overridden), got %d", len(loader.All()))
@@ -215,7 +215,7 @@ New instructions.
 
 func TestBuildSkillsSummary(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	summary := loader.BuildSkillsSummary()
 	if !strings.Contains(summary, "Writing Style") {
@@ -237,7 +237,7 @@ func TestBuildSkillsSummary(t *testing.T) {
 
 func TestBuildAlwaysLoadedContext(t *testing.T) {
 	dir := setupSkillsDir(t)
-	loader := LoadSkills(dir)
+	loader := LoadSkills([]string{dir}, nil)
 
 	ctx := loader.BuildAlwaysLoadedContext()
 	if !strings.Contains(ctx, "Writing Style") {

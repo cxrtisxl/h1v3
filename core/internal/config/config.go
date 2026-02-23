@@ -23,11 +23,12 @@ type Config struct {
 
 // HiveConfig holds hive-level settings.
 type HiveConfig struct {
-	ID               string `json:"id"`
-	DataDir          string `json:"data_dir"`
-	FrontAgentID     string `json:"front_agent_id"`
-	CompactThreshold int    `json:"compact_threshold"`
-	PresetFile       string `json:"preset_file,omitempty"`
+	ID               string   `json:"id"`
+	DataDir          string   `json:"data_dir"`
+	FrontAgentID     string   `json:"front_agent_id"`
+	CompactThreshold int      `json:"compact_threshold"`
+	PresetFile       string   `json:"preset_file,omitempty"`
+	SkillPaths       []string `json:"skill_paths,omitempty"` // extra relative paths to scan for skills per agent
 }
 
 // PresetFile is the structure of a preset JSON file.

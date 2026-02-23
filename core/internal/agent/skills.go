@@ -29,37 +29,48 @@ type SkillsLoader struct {
 // LoadSkills scans {dir}/skills/ for each provided directory and loads all
 // skill definitions. Skills from later directories override earlier ones
 // (matched by slug). Pass shared/bundled dirs first, agent-specific last.
-func LoadSkills(dirs ...string) *SkillsLoader {
+// Use extraDirs to add directories that are scanned directly (without
+// appending /skills/).
+func LoadSkills(dirs []string, extraDirs []string) *SkillsLoader {
 	loader := &SkillsLoader{}
 	seen := map[string]int{} // slug → index in loader.skills
 
+	// Standard dirs: scan {dir}/skills/
 	for _, dir := range dirs {
-		skillsDir := filepath.Join(dir, "skills")
-		entries, err := os.ReadDir(skillsDir)
-		if err != nil {
-			continue // no skills directory — that's fine
-		}
+		loader.scanDir(filepath.Join(dir, "skills"), seen)
+	}
 
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			slug := e.Name()
-			skillDir := filepath.Join(skillsDir, slug)
-			skill := loadSkill(slug, skillDir)
-			if skill == nil {
-				continue
-			}
-			if idx, ok := seen[slug]; ok {
-				loader.skills[idx] = skill // override
-			} else {
-				seen[slug] = len(loader.skills)
-				loader.skills = append(loader.skills, skill)
-			}
-		}
+	// Extra dirs: scan directly
+	for _, dir := range extraDirs {
+		loader.scanDir(dir, seen)
 	}
 
 	return loader
+}
+
+func (l *SkillsLoader) scanDir(skillsDir string, seen map[string]int) {
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return // directory doesn't exist — that's fine
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		slug := e.Name()
+		skillDir := filepath.Join(skillsDir, slug)
+		skill := loadSkill(slug, skillDir)
+		if skill == nil {
+			continue
+		}
+		if idx, ok := seen[slug]; ok {
+			l.skills[idx] = skill // override
+		} else {
+			seen[slug] = len(l.skills)
+			l.skills = append(l.skills, skill)
+		}
+	}
 }
 
 func loadSkill(slug, dir string) *Skill {
@@ -218,6 +229,17 @@ func (l *SkillsLoader) GetSkill(slug string) (*tool.SkillEntry, bool) {
 		Scripts:     s.Scripts,
 		Dir:         s.Dir,
 	}, true
+}
+
+// DynamicSkillProvider implements tool.SkillProvider by reloading skills
+// from disk on each call, so newly installed skills are picked up immediately.
+type DynamicSkillProvider struct {
+	Dirs      []string
+	ExtraDirs []string
+}
+
+func (p *DynamicSkillProvider) GetSkill(slug string) (*tool.SkillEntry, bool) {
+	return LoadSkills(p.Dirs, p.ExtraDirs).GetSkill(slug)
 }
 
 // BuildSkillsSummary generates a text summary of available skills for the system prompt.

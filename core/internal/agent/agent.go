@@ -18,8 +18,9 @@ type Agent struct {
 	Tools         *tool.Registry
 	Logger        *slog.Logger
 	MaxIterations int
-	Memory        *memory.Store  // optional, injected at startup
-	Skills        *SkillsLoader  // optional, injected at startup
+	Memory         *memory.Store // optional, injected at startup
+	SkillDirs      []string      // parent dirs (scanned as {dir}/skills/), reloaded each prompt
+	ExtraSkillDirs []string      // direct skill dirs (scanned as-is), from skill_paths config
 }
 
 // New creates a new Agent with sensible defaults.

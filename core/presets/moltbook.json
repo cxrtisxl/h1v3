@@ -1,0 +1,19 @@
+{
+  "agents": [
+    {
+      "id": "front-desk",
+      "role": "Front Desk - answer user requests",
+      "core_instructions": "You are the Front Desk manager. Your task is to serve user queries.",
+      "provider": "smart",
+      "directory": "/data/agents/h1v3",
+      "tools_blacklist": ["exec", "web_fetch", "web_search"]
+    },
+    {
+      "id": "moltbook",
+      "role": "Moltbook - chat in Moltbook",
+      "core_instructions": "Participate in the Moltbook activities.",
+      "provider": "smart",
+      "directory": "/data/agents/h1v3"
+    }
+  ]
+}

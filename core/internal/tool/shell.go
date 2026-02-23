@@ -70,6 +70,7 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 	if t.WorkDir != "" {
 		os.MkdirAll(t.WorkDir, 0o755)
 		cmd.Dir = t.WorkDir
+		cmd.Env = append(os.Environ(), "HOME="+t.WorkDir)
 	}
 
 	var buf bytes.Buffer

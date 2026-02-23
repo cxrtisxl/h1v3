@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -161,8 +162,17 @@ func main() {
 
 		ag := agent.New(spec, prov, agentTools)
 		ag.Memory = mem
-		ag.Skills = agent.LoadSkills(cfg.Hive.DataDir, spec.Directory)
-		register(&tool.LoadSkillTool{Provider: ag.Skills})
+		// Skill dirs: shared (dataDir) and agent-specific (dir) are scanned as {dir}/skills/.
+		// Extra skill_paths from preset are resolved per-agent and scanned directly.
+		// e.g. skill_paths: [".moltbot/skills"] → scans {agentDir}/.moltbot/skills/
+		skillDirs := []string{cfg.Hive.DataDir, spec.Directory}
+		var extraSkillDirs []string
+		for _, rel := range cfg.Hive.SkillPaths {
+			extraSkillDirs = append(extraSkillDirs, filepath.Join(spec.Directory, rel))
+		}
+		ag.SkillDirs = skillDirs
+		ag.ExtraSkillDirs = extraSkillDirs
+		register(&tool.LoadSkillTool{Provider: &agent.DynamicSkillProvider{Dirs: skillDirs, ExtraDirs: extraSkillDirs}})
 		ag.Logger = logger.With("agent", spec.ID)
 
 		if err := reg.RegisterAgent(spec, ag); err != nil {
