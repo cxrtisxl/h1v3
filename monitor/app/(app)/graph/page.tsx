@@ -26,6 +26,12 @@ interface GraphEdge {
   target: string;
 }
 
+interface Camera {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Graph building                                                     */
 /* ------------------------------------------------------------------ */
@@ -212,9 +218,6 @@ function simulate(
     n.vy *= DAMPING;
     n.x += n.vx;
     n.y += n.vy;
-    // Keep in bounds
-    n.x = Math.max(n.radius, Math.min(w - n.radius, n.x));
-    n.y = Math.max(n.radius, Math.min(h - n.radius, n.y));
   }
 }
 
@@ -243,6 +246,7 @@ function draw(
   edges: GraphEdge[],
   w: number,
   h: number,
+  cam: Camera,
   hoveredId: string | null,
   dragId: string | null,
 ) {
@@ -254,6 +258,10 @@ function draw(
   ctx.save();
   ctx.scale(dpr, dpr);
 
+  // Apply camera transform
+  ctx.translate(cam.x, cam.y);
+  ctx.scale(cam.zoom, cam.zoom);
+
   // Edges
   for (const e of edges) {
     const a = lookup.get(e.source);
@@ -264,7 +272,7 @@ function draw(
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.strokeStyle = isHighlighted ? "rgba(148,163,184,0.7)" : COLORS.edge;
-    ctx.lineWidth = isHighlighted ? 2 : 1;
+    ctx.lineWidth = (isHighlighted ? 2 : 1) / cam.zoom;
     ctx.stroke();
   }
 
@@ -300,37 +308,46 @@ function draw(
     ctx.fillStyle = fill;
     ctx.fill();
     ctx.strokeStyle = stroke;
-    ctx.lineWidth = isActive ? 3 : 2;
+    ctx.lineWidth = (isActive ? 3 : 2) / cam.zoom;
     ctx.stroke();
 
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
 
-    // Label
+    // Label — always below the node
     const fontSize = n.kind === "ticket" ? 10 : 12;
     ctx.font = `600 ${fontSize}px ui-monospace, monospace`;
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
+    ctx.textBaseline = "top";
 
     const displayLabel =
       n.kind === "ticket"
         ? n.label.length > 16
-          ? n.label.slice(0, 15) + "…"
+          ? n.label.slice(0, 15) + "\u2026"
           : n.label
         : n.label;
 
     if (n.kind === "ticket") {
-      // Label below the node
       ctx.fillStyle = n.status === "closed" ? COLORS.textMuted : COLORS.text;
-      ctx.fillText(displayLabel, n.x, n.y + n.radius + 12);
     } else {
-      // Label inside the node
-      ctx.fillStyle = COLORS.textDark;
-      ctx.fillText(displayLabel, n.x, n.y);
+      ctx.fillStyle = COLORS.text;
     }
+    ctx.fillText(displayLabel, n.x, n.y + n.radius + 6);
   }
 
   ctx.restore();
+}
+
+/* ------------------------------------------------------------------ */
+/*  Coordinate helpers                                                 */
+/* ------------------------------------------------------------------ */
+
+/** Convert screen (mouse) coords to world (graph) coords */
+function screenToWorld(sx: number, sy: number, cam: Camera): { wx: number; wy: number } {
+  return {
+    wx: (sx - cam.x) / cam.zoom,
+    wy: (sy - cam.y) / cam.zoom,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -345,6 +362,8 @@ export default function GraphPage() {
   const animRef = useRef<number>(0);
   const hoveredRef = useRef<string | null>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const panRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null);
+  const camRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
   const sizeRef = useRef({ w: 800, h: 600 });
 
   const [loading, setLoading] = useState(true);
@@ -403,7 +422,7 @@ export default function GraphPage() {
       if (!ctx) return;
 
       simulate(nodesRef.current, edgesRef.current, w, h);
-      draw(ctx, nodesRef.current, edgesRef.current, w, h, hoveredRef.current, dragRef.current?.id ?? null);
+      draw(ctx, nodesRef.current, edgesRef.current, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null);
       frame = requestAnimationFrame(loop);
     };
 
@@ -421,17 +440,16 @@ export default function GraphPage() {
     return () => ro.disconnect();
   }, [resize]);
 
-  // Mouse interactions
+  // Hit-test in world coordinates
   const findNode = useCallback((ex: number, ey: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
-    const mx = ex - rect.left;
-    const my = ey - rect.top;
+    const { wx, wy } = screenToWorld(ex - rect.left, ey - rect.top, camRef.current);
     for (let i = nodesRef.current.length - 1; i >= 0; i--) {
       const n = nodesRef.current[i];
-      const dx = mx - n.x;
-      const dy = my - n.y;
+      const dx = wx - n.x;
+      const dy = wy - n.y;
       if (dx * dx + dy * dy <= (n.radius + 4) * (n.radius + 4)) return n;
     }
     return null;
@@ -439,24 +457,36 @@ export default function GraphPage() {
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+
+      // Node drag
       const d = dragRef.current;
       if (d) {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
+        const { wx, wy } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camRef.current);
         const node = nodesRef.current.find((n) => n.id === d.id);
         if (node) {
-          node.x = e.clientX - rect.left - d.offsetX;
-          node.y = e.clientY - rect.top - d.offsetY;
+          node.x = wx - d.offsetX;
+          node.y = wy - d.offsetY;
           node.vx = 0;
           node.vy = 0;
         }
         return;
       }
+
+      // Canvas pan
+      const p = panRef.current;
+      if (p) {
+        camRef.current.x = p.camX + (e.clientX - p.startX);
+        camRef.current.y = p.camY + (e.clientY - p.startY);
+        return;
+      }
+
+      // Hover
       const n = findNode(e.clientX, e.clientY);
       hoveredRef.current = n?.id ?? null;
-      const canvas = canvasRef.current;
-      if (canvas) canvas.style.cursor = n ? "grab" : "default";
+      canvas.style.cursor = n ? "grab" : "default";
     },
     [findNode],
   );
@@ -464,24 +494,56 @@ export default function GraphPage() {
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       const n = findNode(e.clientX, e.clientY);
-      if (!n) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
-      dragRef.current = {
-        id: n.id,
-        offsetX: e.clientX - rect.left - n.x,
-        offsetY: e.clientY - rect.top - n.y,
-      };
-      canvas.style.cursor = "grabbing";
+
+      if (n) {
+        // Drag node
+        const { wx, wy } = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, camRef.current);
+        dragRef.current = {
+          id: n.id,
+          offsetX: wx - n.x,
+          offsetY: wy - n.y,
+        };
+        canvas.style.cursor = "grabbing";
+      } else {
+        // Start panning
+        panRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          camX: camRef.current.x,
+          camY: camRef.current.y,
+        };
+        canvas.style.cursor = "move";
+      }
     },
     [findNode],
   );
 
   const onMouseUp = useCallback(() => {
     dragRef.current = null;
+    panRef.current = null;
     const canvas = canvasRef.current;
     if (canvas) canvas.style.cursor = "default";
+  }, []);
+
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    const cam = camRef.current;
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const newZoom = Math.min(5, Math.max(0.1, cam.zoom * factor));
+
+    // Zoom centered on cursor
+    cam.x = mx - (mx - cam.x) * (newZoom / cam.zoom);
+    cam.y = my - (my - cam.y) * (newZoom / cam.zoom);
+    cam.zoom = newZoom;
   }, []);
 
   if (loading) {
@@ -523,6 +585,7 @@ export default function GraphPage() {
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
           onMouseLeave={onMouseUp}
+          onWheel={onWheel}
         />
       </div>
     </div>
