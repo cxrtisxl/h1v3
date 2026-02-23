@@ -222,6 +222,104 @@ func TestGetTicketTool_Success(t *testing.T) {
 	}
 }
 
+func TestCreateTicketTool_SubTicketSameRecipient_RequiresConfirmation(t *testing.T) {
+	broker := newTestBroker(t)
+
+	// Create parent ticket: agent-a -> agent-b
+	ct := &CreateTicketTool{Broker: broker, AgentID: "agent-a"}
+	result, err := ct.Execute(context.Background(), map[string]any{
+		"to":    []any{"agent-b"},
+		"title": "Parent task",
+		"goal":  "Get something done",
+	})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	parentID := extractTicketID(result)
+
+	// Agent-b tries to create a sub-ticket back to agent-a (same participant)
+	ctB := &CreateTicketTool{Broker: broker, AgentID: "agent-b"}
+	parentCtx := WithCurrentTicket(context.Background(), parentID)
+	result, err = ctB.Execute(parentCtx, map[string]any{
+		"to":    []any{"agent-a"},
+		"title": "Sub task",
+		"goal":  "Need more info",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "CONFIRMATION REQUIRED") {
+		t.Errorf("expected confirmation prompt, got %q", result)
+	}
+	// No ticket should have been created
+	if len(broker.messages) != 1 { // only the parent creation message
+		t.Errorf("expected only 1 routed message (parent), got %d", len(broker.messages))
+	}
+}
+
+func TestCreateTicketTool_SubTicketSameRecipient_ConfirmedProceeds(t *testing.T) {
+	broker := newTestBroker(t)
+
+	// Create parent ticket: agent-a -> agent-b
+	ct := &CreateTicketTool{Broker: broker, AgentID: "agent-a"}
+	result, err := ct.Execute(context.Background(), map[string]any{
+		"to":    []any{"agent-b"},
+		"title": "Parent task",
+		"goal":  "Get something done",
+	})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	parentID := extractTicketID(result)
+
+	// Agent-b creates a sub-ticket back to agent-a with confirmed=true
+	ctB := &CreateTicketTool{Broker: broker, AgentID: "agent-b"}
+	parentCtx := WithCurrentTicket(context.Background(), parentID)
+	result, err = ctB.Execute(parentCtx, map[string]any{
+		"to":        []any{"agent-a"},
+		"title":     "Sub task",
+		"goal":      "Need more info",
+		"confirmed": true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Ticket created") {
+		t.Errorf("expected ticket creation, got %q", result)
+	}
+}
+
+func TestCreateTicketTool_SubTicketDifferentRecipient_NoConfirmation(t *testing.T) {
+	broker := newTestBroker(t)
+
+	// Create parent ticket: agent-a -> agent-b
+	ct := &CreateTicketTool{Broker: broker, AgentID: "agent-a"}
+	result, err := ct.Execute(context.Background(), map[string]any{
+		"to":    []any{"agent-b"},
+		"title": "Parent task",
+		"goal":  "Get something done",
+	})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	parentID := extractTicketID(result)
+
+	// Agent-b creates a sub-ticket to agent-c (different agent, no overlap)
+	ctB := &CreateTicketTool{Broker: broker, AgentID: "agent-b"}
+	parentCtx := WithCurrentTicket(context.Background(), parentID)
+	result, err = ctB.Execute(parentCtx, map[string]any{
+		"to":    []any{"agent-c"},
+		"title": "Sub task to C",
+		"goal":  "Delegate to someone else",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(result, "Ticket created") {
+		t.Errorf("expected ticket creation without confirmation, got %q", result)
+	}
+}
+
 // extractTicketID extracts the ticket ID from "Ticket created: <id> (title: ...)"
 func extractTicketID(result string) string {
 	parts := strings.SplitN(result, " ", 4)

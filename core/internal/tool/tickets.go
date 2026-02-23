@@ -147,6 +147,23 @@ func collectRecipients(tk *protocol.Ticket, sender string) []string {
 	return recipients
 }
 
+// sameRecipientOverlap returns target agent IDs that are already participants
+// (creator or assignee) on the given parent ticket.
+func sameRecipientOverlap(parent *protocol.Ticket, to []string) []string {
+	participants := make(map[string]bool)
+	participants[parent.CreatedBy] = true
+	for _, id := range parent.WaitingOn {
+		participants[id] = true
+	}
+	var overlap []string
+	for _, id := range to {
+		if participants[id] {
+			overlap = append(overlap, id)
+		}
+	}
+	return overlap
+}
+
 // validateAgentIDs checks that all given IDs are known agents.
 // Returns an error listing unknown IDs and the valid ones.
 func validateAgentIDs(lister AgentLister, ids []string) error {
@@ -187,8 +204,9 @@ func (t *CreateTicketTool) Parameters() map[string]any {
 			"to":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Target agent IDs"},
 			"title": map[string]any{"type": "string", "description": "Ticket title describing the task"},
 			"goal":  map[string]any{"type": "string", "description": "Concrete completion condition — what response or outcome would satisfy this ticket (e.g. 'Get the agent's display name')"},
-			"message": map[string]any{"type": "string", "description": "Optional free-form message to include with the ticket (e.g. research results, context, supporting data)"},
-			"tags":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
+			"message":   map[string]any{"type": "string", "description": "Optional free-form message to include with the ticket (e.g. research results, context, supporting data)"},
+			"tags":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
+			"confirmed": map[string]any{"type": "boolean", "description": "Set to true to confirm creating a sub-ticket to the same agent as the parent ticket"},
 		},
 		"required": []string{"to", "title", "goal"},
 	}
@@ -223,6 +241,28 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 
 	// Auto-set parent ticket from context (the ticket the agent is currently working on)
 	parentID := CurrentTicketFromContext(ctx)
+
+	// When creating a sub-ticket, check if any target agent is already a
+	// participant on the parent ticket. If so, require explicit confirmation
+	// to avoid agents falling into loops of creating sub-tickets to each other.
+	if parentID != "" {
+		confirmed, _ := params["confirmed"].(bool)
+		if !confirmed {
+			parentTicket, err := t.Broker.GetTicket(parentID)
+			if err == nil {
+				overlap := sameRecipientOverlap(parentTicket, to)
+				if len(overlap) > 0 {
+					return fmt.Sprintf(
+						"CONFIRMATION REQUIRED: You are creating a sub-ticket for an existing ticket for %s with title %q and goal %q. "+
+							"Are you sure the sub-ticket to the same agent with title %q and goal %q should be created? "+
+							"If it is related to the existing ticket — use `respond_to_ticket` to add more context or use `wait` to wait for new messages. "+
+							"To proceed, call create_ticket again with confirmed=true.",
+						strings.Join(overlap, ", "), parentTicket.Title, parentTicket.Goal, title, goal,
+					), nil
+				}
+			}
+		}
+	}
 
 	tk, err := t.Broker.CreateTicket(t.AgentID, title, goal, parentID, to, tags)
 	if err != nil {
