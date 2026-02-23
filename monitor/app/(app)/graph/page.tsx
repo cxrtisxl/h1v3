@@ -164,34 +164,66 @@ function simulate(
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
 
-  const REPULSION = 4000 * strength;
-  const ATTRACTION = 0.005;
-  const IDEAL_LEN = 140 * strength;
-  const CENTER_PULL = 0.01;
+  // Build adjacency: direct neighbors per node
+  const neighbors = new Map<string, Set<string>>();
+  for (const n of nodes) neighbors.set(n.id, new Set());
+  for (const e of edges) {
+    neighbors.get(e.source)?.add(e.target);
+    neighbors.get(e.target)?.add(e.source);
+  }
+
+  const REPULSION = 3000 * strength;
+  const SIBLING_REPULSION = 1500 * strength;
+  const ATTRACTION = 0.008;
+  const IDEAL_LEN = 120 * strength;
   const DAMPING = 0.85;
 
-  const cx = w / 2;
-  const cy = h / 2;
+  // Repulsion along edges (between directly connected nodes)
+  for (const e of edges) {
+    const a = lookup.get(e.source);
+    const b = lookup.get(e.target);
+    if (!a || !b) continue;
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    const force = REPULSION / (dist * dist);
+    const fx = (dx / dist) * force;
+    const fy = (dy / dist) * force;
+    a.vx += fx;
+    a.vy += fy;
+    b.vx -= fx;
+    b.vy -= fy;
+  }
 
-  // Repulsion between all node pairs
-  for (let i = 0; i < nodes.length; i++) {
-    for (let j = i + 1; j < nodes.length; j++) {
-      const a = nodes[i];
-      const b = nodes[j];
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = REPULSION / (dist * dist);
-      const fx = (dx / dist) * force;
-      const fy = (dy / dist) * force;
-      a.vx += fx;
-      a.vy += fy;
-      b.vx -= fx;
-      b.vy -= fy;
+  // Sibling repulsion: nodes that share a common neighbor push apart
+  const siblingPairs = new Set<string>();
+  for (const n of nodes) {
+    const nbs = neighbors.get(n.id);
+    if (!nbs || nbs.size < 2) continue;
+    const arr = Array.from(nbs);
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const key = arr[i] < arr[j] ? `${arr[i]}|||${arr[j]}` : `${arr[j]}|||${arr[i]}`;
+        if (siblingPairs.has(key)) continue;
+        siblingPairs.add(key);
+        const a = lookup.get(arr[i]);
+        const b = lookup.get(arr[j]);
+        if (!a || !b) continue;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const force = SIBLING_REPULSION / (dist * dist);
+        const fx = (dx / dist) * force;
+        const fy = (dy / dist) * force;
+        a.vx += fx;
+        a.vy += fy;
+        b.vx -= fx;
+        b.vy -= fy;
+      }
     }
   }
 
-  // Attraction along edges
+  // Attraction along edges (spring toward ideal length)
   for (const e of edges) {
     const a = lookup.get(e.source);
     const b = lookup.get(e.target);
@@ -207,12 +239,6 @@ function simulate(
     a.vy += fy;
     b.vx -= fx;
     b.vy -= fy;
-  }
-
-  // Center gravity
-  for (const n of nodes) {
-    n.vx += (cx - n.x) * CENTER_PULL;
-    n.vy += (cy - n.y) * CENTER_PULL;
   }
 
   // Apply velocities
