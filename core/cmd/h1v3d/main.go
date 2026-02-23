@@ -198,6 +198,7 @@ func main() {
 			// routes to "_external" via respond_to_ticket.
 			sink := &telegramSink{
 				ticketToChat: make(map[string]string),
+				getTicket:    reg.GetTicket,
 				logger:       logger.With("component", "telegram-sink"),
 			}
 			sink.send = func(ctx context.Context, msg connector.OutboundMessage) error {
@@ -263,6 +264,24 @@ func main() {
 						ChatID:  msg.ChatID,
 						Content: fmt.Sprintf("Ticket %s closed.", ticketID),
 					})
+				}
+				if strings.HasPrefix(cmd, "/ticket ") {
+					rest := strings.TrimSpace(strings.TrimPrefix(cmd, "/ticket"))
+					parts := strings.SplitN(rest, " ", 2)
+					if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+						return tgConn.Send(ctx, connector.OutboundMessage{
+							ChatID:  msg.ChatID,
+							Content: "Usage: /ticket <ticket_id> <message>",
+						})
+					}
+					ticketID, text := parts[0], parts[1]
+					if err := sm.SendToTicket(ticketID, text); err != nil {
+						return tgConn.Send(ctx, connector.OutboundMessage{
+							ChatID:  msg.ChatID,
+							Content: fmt.Sprintf("Failed to send to ticket: %v", err),
+						})
+					}
+					return nil
 				}
 				return sm.HandleInbound(msg.ChatID, msg.Content)
 			}
@@ -389,6 +408,7 @@ type telegramSink struct {
 	mu           sync.Mutex
 	ticketToChat map[string]string // ticketID → chatID
 	send         func(ctx context.Context, msg connector.OutboundMessage) error
+	getTicket    func(ticketID string) (*protocol.Ticket, error)
 	logger       *slog.Logger
 }
 
@@ -400,9 +420,18 @@ func (s *telegramSink) Deliver(msg protocol.Message) error {
 		s.logger.Warn("no chat mapping for ticket", "ticket", msg.TicketID)
 		return fmt.Errorf("telegram sink: no chat mapping for ticket %s", msg.TicketID)
 	}
+
+	// Prepend ticket ID and title so the user knows which conversation this belongs to.
+	content := msg.Content
+	if s.getTicket != nil {
+		if tk, err := s.getTicket(msg.TicketID); err == nil {
+			content = fmt.Sprintf("[%s — %s]\n%s", tk.ID, tk.Title, content)
+		}
+	}
+
 	return s.send(context.Background(), connector.OutboundMessage{
 		ChatID:  chatID,
-		Content: msg.Content,
+		Content: content,
 	})
 }
 

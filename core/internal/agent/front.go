@@ -58,6 +58,18 @@ func (sm *SessionManager) HandleInbound(chatID, content string) error {
 	return sm.Router.RouteMessage(msg)
 }
 
+// SendToTicket routes a message to a specific ticket, bypassing session lookup.
+func (sm *SessionManager) SendToTicket(ticketID, content string) error {
+	msg := protocol.Message{
+		From:      "_external",
+		To:        []string{sm.FrontAgentID},
+		Content:   content,
+		TicketID:  ticketID,
+		Timestamp: time.Now(),
+	}
+	return sm.Router.RouteMessage(msg)
+}
+
 // CloseSession closes the active ticket for a chat and removes the session mapping.
 func (sm *SessionManager) CloseSession(chatID string) {
 	sm.mu.Lock()

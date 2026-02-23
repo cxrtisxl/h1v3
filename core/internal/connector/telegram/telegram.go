@@ -194,6 +194,7 @@ func (c *Connector) handleCommand(ctx context.Context, msg *tgbotapi.Message) {
 			"/start — Start the bot",
 			"/new — Start a new conversation (closes current)",
 			"/parallel — Start a parallel conversation (keeps current open)",
+			"/ticket <id> <msg> — Send a message to a specific ticket",
 			"/close <id> — Close a ticket by ID",
 			"/help — Show this help message",
 			"",
