@@ -280,12 +280,45 @@ func TestCreateTicketTool_SubTicketSameRecipient_ConfirmedProceeds(t *testing.T)
 		"title":     "Sub task",
 		"goal":      "Need more info",
 		"confirmed": true,
+		"reason":    "Need clarification on a different aspect not covered by the parent ticket",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(result, "Ticket created") {
 		t.Errorf("expected ticket creation, got %q", result)
+	}
+}
+
+func TestCreateTicketTool_SubTicketConfirmedWithoutReason_Rejected(t *testing.T) {
+	broker := newTestBroker(t)
+
+	// Create parent ticket: agent-a -> agent-b
+	ct := &CreateTicketTool{Broker: broker, AgentID: "agent-a"}
+	result, err := ct.Execute(context.Background(), map[string]any{
+		"to":    []any{"agent-b"},
+		"title": "Parent task",
+		"goal":  "Get something done",
+	})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	parentID := extractTicketID(result)
+
+	// Agent-b tries confirmed=true but no reason
+	ctB := &CreateTicketTool{Broker: broker, AgentID: "agent-b"}
+	parentCtx := WithCurrentTicket(context.Background(), parentID)
+	_, err = ctB.Execute(parentCtx, map[string]any{
+		"to":        []any{"agent-a"},
+		"title":     "Sub task",
+		"goal":      "Need more info",
+		"confirmed": true,
+	})
+	if err == nil {
+		t.Fatal("expected error for confirmed without reason")
+	}
+	if !strings.Contains(err.Error(), "reason is required") {
+		t.Errorf("expected 'reason is required' error, got: %v", err)
 	}
 }
 

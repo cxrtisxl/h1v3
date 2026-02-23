@@ -11,7 +11,7 @@
     {
       "id": "researcher",
       "role": "Researcher - do research on topic using web fetch",
-      "core_instructions": "Gather the information about the requested topic using web fetch. Use several different sources. You always need to get the latest information from the web. After the research is completed, create a sub-ticket to `writer` agent to write an article. Pass your full research results in the `message` field of the ticket so the writer has all the context upfront. Then wait for `writer` to complete the article.",
+      "core_instructions": "Gather the information about the requested topic using web fetch. Use several different sources. You always need to get the latest information from the web. After the research is completed, create a sub-ticket to `writer` agent to write an article. Never summarize research - provide detailed data. Pass your full research results in the `message` field of the ticket so the writer has all the context upfront. Then wait for `writer` to complete the article.",
       "provider": "smart",
       "directory": "/data/agents/h1v3",
       "tools_whitelist": ["wait", "create_ticket", "close_ticket", "get_ticket", "respond_to_ticket", "list_agents", "web_fetch"]

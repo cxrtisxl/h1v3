@@ -207,6 +207,7 @@ func (t *CreateTicketTool) Parameters() map[string]any {
 			"message":   map[string]any{"type": "string", "description": "Optional free-form message to include with the ticket (e.g. research results, context, supporting data)"},
 			"tags":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags"},
 			"confirmed": map[string]any{"type": "boolean", "description": "Set to true to confirm creating a sub-ticket to the same agent as the parent ticket"},
+			"reason":    map[string]any{"type": "string", "description": "Required when confirmed=true — explain why a new sub-ticket is needed instead of using respond_to_ticket, close_ticket, or wait"},
 		},
 		"required": []string{"to", "title", "goal"},
 	}
@@ -247,6 +248,10 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 	// to avoid agents falling into loops of creating sub-tickets to each other.
 	if parentID != "" {
 		confirmed, _ := params["confirmed"].(bool)
+		reason := getString(params, "reason")
+		if confirmed && reason == "" {
+			return "", fmt.Errorf("create_ticket: reason is required when confirmed=true — explain why a new sub-ticket is needed")
+		}
 		if !confirmed {
 			parentTicket, err := t.Broker.GetTicket(parentID)
 			if err == nil {
@@ -255,8 +260,11 @@ func (t *CreateTicketTool) Execute(ctx context.Context, params map[string]any) (
 					return fmt.Sprintf(
 						"CONFIRMATION REQUIRED: You are creating a sub-ticket for an existing ticket for %s with title %q and goal %q. "+
 							"Are you sure the sub-ticket to the same agent with title %q and goal %q should be created? "+
-							"If it is related to the existing ticket — use `respond_to_ticket` to add more context or use `wait` to wait for new messages. "+
-							"To proceed, call create_ticket again with confirmed=true.",
+							"Consider these alternatives first:\n"+
+							"- `respond_to_ticket` — add more context or ask follow-up questions on the existing ticket\n"+
+							"- `close_ticket` — if the assignee has already provided the answer or indicated the work is done\n"+
+							"- `wait` — if you are waiting for the assignee to finish\n\n"+
+							"To proceed, call create_ticket again with confirmed=true AND reason explaining why a new sub-ticket is necessary.",
 						strings.Join(overlap, ", "), parentTicket.Title, parentTicket.Goal, title, goal,
 					), nil
 				}
