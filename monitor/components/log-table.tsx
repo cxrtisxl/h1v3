@@ -183,13 +183,24 @@ export function LogTable({
                           onClick={(ev) => {
                             ev.stopPropagation();
                             const entries = Object.entries(e.attrs || {}).filter(([k]) => k !== "agent");
+                            const parts: string[] = [];
+                            for (const [k, v] of entries) {
+                              if (k === "args" && typeof v === "string") {
+                                try {
+                                  const parsed = JSON.parse(v);
+                                  for (const [ak, av] of Object.entries(parsed)) {
+                                    parts.push(`${ak}: ${typeof av === "string" ? av : JSON.stringify(av, null, 2)}`);
+                                  }
+                                } catch {
+                                  parts.push(`args: ${v}`);
+                                }
+                              } else {
+                                parts.push(`${k}: ${typeof v === "string" ? v : JSON.stringify(v, null, 2)}`);
+                              }
+                            }
                             setToolDetail({
                               title: e.message,
-                              content: entries.length > 0
-                                ? entries.map(([k, v]) =>
-                                    `${k}: ${typeof v === "string" ? v : JSON.stringify(v, null, 2)}`
-                                  ).join("\n\n")
-                                : "(no details available)",
+                              content: parts.length > 0 ? parts.join("\n\n") : "(no details available)",
                             });
                           }}
                           className="text-muted-foreground hover:text-foreground transition-colors"
