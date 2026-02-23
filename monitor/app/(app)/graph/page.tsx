@@ -158,13 +158,14 @@ function simulate(
   edges: GraphEdge[],
   w: number,
   h: number,
+  strength: number,
 ) {
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
 
-  const REPULSION = 4000;
+  const REPULSION = 4000 * strength;
   const ATTRACTION = 0.005;
-  const IDEAL_LEN = 140;
+  const IDEAL_LEN = 140 * strength;
   const CENTER_PULL = 0.01;
   const DAMPING = 0.85;
 
@@ -376,10 +377,14 @@ export default function GraphPage() {
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null);
   const camRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
+  const strengthRef = useRef(1);
   const logoRef = useRef<HTMLImageElement | null>(null);
   const sizeRef = useRef({ w: 800, h: 600 });
 
   const [loading, setLoading] = useState(true);
+  const [strength, setStrength] = useState(1);
+  const [showClosed, setShowClosed] = useState(true);
+  const showClosedRef = useRef(true);
   const [, setTick] = useState(0); // force re-render for legend
 
   // Preload logo
@@ -467,8 +472,17 @@ export default function GraphPage() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      simulate(nodesRef.current, edgesRef.current, w, h);
-      draw(ctx, nodesRef.current, edgesRef.current, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current);
+      const hideClosed = !showClosedRef.current;
+      const visibleNodes = hideClosed
+        ? nodesRef.current.filter((n) => !(n.kind === "ticket" && n.status === "closed"))
+        : nodesRef.current;
+      const visibleIds = hideClosed ? new Set(visibleNodes.map((n) => n.id)) : null;
+      const visibleEdges = visibleIds
+        ? edgesRef.current.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
+        : edgesRef.current;
+
+      simulate(visibleNodes, visibleEdges, w, h, strengthRef.current);
+      draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current);
       frame = requestAnimationFrame(loop);
     };
 
@@ -622,6 +636,40 @@ export default function GraphPage() {
             <span className="inline-block h-3 w-3 rounded-full" style={{ background: COLORS.ticketClosed }} />
             Closed Ticket
           </span>
+        </div>
+        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span>Closed</span>
+            <button
+              role="switch"
+              aria-checked={showClosed}
+              onClick={() => {
+                setShowClosed((v) => {
+                  showClosedRef.current = !v;
+                  return !v;
+                });
+              }}
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${showClosed ? "bg-[#6AEC01]" : "bg-muted"}`}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${showClosed ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </button>
+          </label>
+          <div className="flex items-center gap-2">
+            <span>Force</span>
+            <input
+              type="range"
+              min={0.1}
+              max={3}
+              step={0.1}
+              value={strength}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                setStrength(v);
+                strengthRef.current = v;
+              }}
+              className="h-1 w-24 cursor-pointer accent-[#6AEC01]"
+            />
+          </div>
         </div>
       </div>
       <div ref={containerRef} className="relative flex-1 min-h-0 rounded-lg border bg-card overflow-hidden">
