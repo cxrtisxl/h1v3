@@ -159,6 +159,7 @@ function simulate(
   w: number,
   h: number,
   strength: number,
+  pinAgents: boolean,
 ) {
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
@@ -216,6 +217,11 @@ function simulate(
 
   // Apply velocities
   for (const n of nodes) {
+    if (pinAgents && n.kind !== "ticket") {
+      n.vx = 0;
+      n.vy = 0;
+      continue;
+    }
     n.vx *= DAMPING;
     n.vy *= DAMPING;
     n.x += n.vx;
@@ -385,6 +391,8 @@ export default function GraphPage() {
   const [strength, setStrength] = useState(1);
   const [showClosed, setShowClosed] = useState(true);
   const showClosedRef = useRef(true);
+  const [pinAgents, setPinAgents] = useState(false);
+  const pinAgentsRef = useRef(false);
   const [, setTick] = useState(0); // force re-render for legend
 
   // Preload logo
@@ -481,7 +489,7 @@ export default function GraphPage() {
         ? edgesRef.current.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
         : edgesRef.current;
 
-      simulate(visibleNodes, visibleEdges, w, h, strengthRef.current);
+      simulate(visibleNodes, visibleEdges, w, h, strengthRef.current, pinAgentsRef.current);
       draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current);
       frame = requestAnimationFrame(loop);
     };
@@ -652,6 +660,22 @@ export default function GraphPage() {
               className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${showClosed ? "bg-[#6AEC01]" : "bg-muted"}`}
             >
               <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${showClosed ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </button>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span>Pin</span>
+            <button
+              role="switch"
+              aria-checked={pinAgents}
+              onClick={() => {
+                setPinAgents((v) => {
+                  pinAgentsRef.current = !v;
+                  return !v;
+                });
+              }}
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${pinAgents ? "bg-[#6AEC01]" : "bg-muted"}`}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${pinAgents ? "translate-x-3.5" : "translate-x-0.5"}`} />
             </button>
           </label>
           <div className="flex items-center gap-2">
