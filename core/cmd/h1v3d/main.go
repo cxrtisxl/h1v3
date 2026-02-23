@@ -425,7 +425,7 @@ func (s *telegramSink) Deliver(msg protocol.Message) error {
 	content := msg.Content
 	if s.getTicket != nil {
 		if tk, err := s.getTicket(msg.TicketID); err == nil {
-			content = fmt.Sprintf("[%s — %s]\n%s", tk.ID, tk.Title, content)
+			content = fmt.Sprintf("[`%s` — %s]\n%s", tk.ID, tk.Title, content)
 		}
 	}
 
