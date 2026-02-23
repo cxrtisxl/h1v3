@@ -85,7 +85,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
 
   // Auto-refresh for open tickets
   useEffect(() => {
-    if (!ticket || ticket.status !== "open") return;
+    if (!ticket || (ticket.status !== "open" && ticket.status !== "awaiting_close")) return;
     const interval = setInterval(load, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [ticket, load]);
@@ -116,7 +116,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
           <h2 className="text-2xl font-semibold tracking-tight">
             {ticket.title}
           </h2>
-          <Badge variant={ticket.status === "open" ? "default" : "secondary"}>
+          <Badge variant={ticket.status === "closed" ? "secondary" : "default"} className={ticket.status === "awaiting_close" ? "animate-pulse-fade" : ""}>
             {ticket.status}
           </Badge>
         </div>
@@ -187,7 +187,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
                     onClick={() => onNavigate(parent.id)}
                     className="flex w-full items-center gap-2 rounded-md border p-2 hover:bg-muted/50 transition-colors text-left"
                   >
-                    <Badge variant={parent.status === "open" ? "default" : "secondary"} className="text-xs">
+                    <Badge variant={parent.status === "closed" ? "secondary" : "default"} className={`text-xs${parent.status === "awaiting_close" ? " animate-pulse-fade" : ""}`}>
                       {parent.status}
                     </Badge>
                     <span className="font-mono text-xs text-muted-foreground">
@@ -203,7 +203,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
                     href={`/tickets/${parent.id}`}
                     className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/50 transition-colors"
                   >
-                    <Badge variant={parent.status === "open" ? "default" : "secondary"} className="text-xs">
+                    <Badge variant={parent.status === "closed" ? "secondary" : "default"} className={`text-xs${parent.status === "awaiting_close" ? " animate-pulse-fade" : ""}`}>
                       {parent.status}
                     </Badge>
                     <span className="font-mono text-xs text-muted-foreground">
@@ -230,7 +230,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
                         onClick={() => onNavigate(child.id)}
                         className="flex w-full items-center gap-2 rounded-md border p-2 hover:bg-muted/50 transition-colors text-left"
                       >
-                        <Badge variant={child.status === "open" ? "default" : "secondary"} className="text-xs">
+                        <Badge variant={child.status === "closed" ? "secondary" : "default"} className={`text-xs${child.status === "awaiting_close" ? " animate-pulse-fade" : ""}`}>
                           {child.status}
                         </Badge>
                         <span className="font-mono text-xs text-muted-foreground">
@@ -252,7 +252,7 @@ export function TicketDetail({ id, onNavigate }: { id: string; onNavigate?: (tic
                         href={`/tickets/${child.id}`}
                         className="flex items-center gap-2 rounded-md border p-2 hover:bg-muted/50 transition-colors"
                       >
-                        <Badge variant={child.status === "open" ? "default" : "secondary"} className="text-xs">
+                        <Badge variant={child.status === "closed" ? "secondary" : "default"} className={`text-xs${child.status === "awaiting_close" ? " animate-pulse-fade" : ""}`}>
                           {child.status}
                         </Badge>
                         <span className="font-mono text-xs text-muted-foreground">

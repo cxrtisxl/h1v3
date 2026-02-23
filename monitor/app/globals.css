@@ -2,9 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes pulse-fade {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+  .animate-pulse-fade {
+    animation: pulse-fade 2s ease-in-out infinite;
   }
 }
 

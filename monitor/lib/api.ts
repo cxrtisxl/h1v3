@@ -24,7 +24,7 @@ export interface Ticket {
   title: string;
   goal?: string;
   parent_ticket_id?: string;
-  status: "open" | "closed";
+  status: "open" | "awaiting_close" | "closed";
   created_by: string;
   waiting_on: string[];
   tags: string[];

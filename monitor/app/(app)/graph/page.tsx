@@ -20,7 +20,7 @@ interface GraphNode {
   id: string;
   label: string;
   kind: "agent" | "ticket" | "external";
-  status?: "open" | "closed";
+  status?: "open" | "awaiting_close" | "closed";
   x: number;
   y: number;
   vx: number;
@@ -460,8 +460,25 @@ function draw(
       ctx.fill();
     } else {
       // Ticket nodes
-      const fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
-      const stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
+      let fill: string;
+      let stroke: string;
+      if (n.status === "awaiting_close") {
+        // Interpolate between open and closed colors using sine wave (~2s cycle)
+        const t = (Math.sin(now * Math.PI / 1000) + 1) / 2; // 0..1 over ~2s
+        const lerp = (a: string, b: string) => {
+          const ai = parseInt(a.slice(1), 16);
+          const bi = parseInt(b.slice(1), 16);
+          const r = Math.round(((ai >> 16) & 0xff) * (1 - t) + ((bi >> 16) & 0xff) * t);
+          const g = Math.round(((ai >> 8) & 0xff) * (1 - t) + ((bi >> 8) & 0xff) * t);
+          const bv = Math.round((ai & 0xff) * (1 - t) + (bi & 0xff) * t);
+          return `rgb(${r},${g},${bv})`;
+        };
+        fill = lerp(COLORS.ticketOpen, COLORS.ticketClosed);
+        stroke = lerp(COLORS.ticketOpenStroke, COLORS.ticketClosedStroke);
+      } else {
+        fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
+        stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
+      }
 
       ctx.beginPath();
       ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
@@ -486,7 +503,17 @@ function draw(
         : n.label;
 
     if (n.kind === "ticket") {
-      ctx.fillStyle = n.status === "closed" ? COLORS.textMuted : COLORS.text;
+      if (n.status === "awaiting_close") {
+        const t = (Math.sin(now * Math.PI / 1000) + 1) / 2;
+        const r1 = parseInt(COLORS.text.slice(1), 16);
+        const r2 = parseInt(COLORS.textMuted.slice(1), 16);
+        const r = Math.round(((r1 >> 16) & 0xff) * (1 - t) + ((r2 >> 16) & 0xff) * t);
+        const g = Math.round(((r1 >> 8) & 0xff) * (1 - t) + ((r2 >> 8) & 0xff) * t);
+        const b = Math.round((r1 & 0xff) * (1 - t) + (r2 & 0xff) * t);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+      } else {
+        ctx.fillStyle = n.status === "closed" ? COLORS.textMuted : COLORS.text;
+      }
     } else {
       ctx.fillStyle = COLORS.text;
     }

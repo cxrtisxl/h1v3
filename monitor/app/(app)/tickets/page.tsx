@@ -8,7 +8,7 @@ import { fetchTickets } from "@/lib/api";
 import type { Ticket } from "@/lib/api";
 import { POLL_INTERVAL } from "@/lib/config";
 
-const STATUS_OPTIONS = ["all", "open", "closed"] as const;
+const STATUS_OPTIONS = ["all", "open", "awaiting_close", "closed"] as const;
 
 export default function TicketsPage() {
   const [tickets, setTickets] = useState<Ticket[]>([]);

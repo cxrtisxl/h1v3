@@ -60,7 +60,7 @@ export function TicketTable({ tickets }: { tickets: Ticket[] }) {
               )}
             </TableCell>
             <TableCell>
-              <Badge variant={t.status === "open" ? "default" : "secondary"}>
+              <Badge variant={t.status === "closed" ? "secondary" : "default"} className={t.status === "awaiting_close" ? "animate-pulse-fade" : ""}>
                 {t.status}
               </Badge>
             </TableCell>
