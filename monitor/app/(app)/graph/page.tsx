@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fetchAgents, fetchTickets } from "@/lib/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { TicketDetail } from "@/components/ticket-detail";
+import { fetchAgents, fetchTickets, fetchLogs } from "@/lib/api";
 import type { Agent, Ticket } from "@/lib/api";
 import { POLL_INTERVAL } from "@/lib/config";
 
@@ -287,6 +293,15 @@ const COLORS = {
   textDark: "#0f172a",
 };
 
+/** Pulse map: node/edge id → { time, isError } */
+interface Pulse {
+  time: number;
+  isError: boolean;
+}
+type PulseMap = Map<string, Pulse>;
+
+const PULSE_DURATION = 800; // ms
+
 function draw(
   ctx: CanvasRenderingContext2D,
   nodes: GraphNode[],
@@ -299,6 +314,8 @@ function draw(
   logo: HTMLImageElement | null,
   parentLinks: GraphEdge[],
   showParentLinks: boolean,
+  pulses: PulseMap,
+  now: number,
 ) {
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
@@ -318,6 +335,35 @@ function draw(
     const b = lookup.get(e.target);
     if (!a || !b) continue;
     const isHighlighted = hoveredId && (a.id === hoveredId || b.id === hoveredId);
+
+    // Edge pulse: check if this edge has an active pulse
+    const edgeKey = [a.id, b.id].sort().join("|||");
+    const edgePulse = pulses.get(edgeKey);
+    let edgeGlow = false;
+    let edgeGlowAlpha = 0;
+    let edgeGlowError = false;
+    if (edgePulse !== undefined) {
+      const elapsed = now - edgePulse.time;
+      if (elapsed < PULSE_DURATION) {
+        edgeGlow = true;
+        edgeGlowAlpha = 0.8 * (1 - elapsed / PULSE_DURATION);
+        edgeGlowError = edgePulse.isError;
+      } else {
+        pulses.delete(edgeKey);
+      }
+    }
+
+    if (edgeGlow) {
+      // Draw glow line behind
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      const rgb = edgeGlowError ? "239,68,68" : "106,236,1";
+      ctx.strokeStyle = `rgba(${rgb},${edgeGlowAlpha})`;
+      ctx.lineWidth = 4 / cam.zoom;
+      ctx.stroke();
+    }
+
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
@@ -348,6 +394,30 @@ function draw(
   for (const n of nodes) {
     const isActive = n.id === hoveredId || n.id === dragId;
     const r = n.radius + (isActive ? 3 : 0);
+
+    // Pulse glow — expanding ring behind the node
+    const pulse = pulses.get(n.id);
+    if (pulse !== undefined) {
+      const elapsed = now - pulse.time;
+      if (elapsed < PULSE_DURATION) {
+        const t = elapsed / PULSE_DURATION;
+        const alpha = 0.7 * (1 - t);
+        const pulseR = r + 6 + 24 * t;
+        const rgb = pulse.isError ? "239,68,68"
+          : n.kind === "agent" ? "106,236,1"
+          : n.kind === "external" ? "255,255,255"
+          : "99,102,241";
+        const grad = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, pulseR);
+        grad.addColorStop(0, `rgba(${rgb},${alpha})`);
+        grad.addColorStop(1, `rgba(${rgb},0)`);
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, pulseR, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      } else {
+        pulses.delete(n.id);
+      }
+    }
 
     if (n.kind === "agent") {
       // Filled background + green border + logo inside
@@ -472,7 +542,11 @@ export default function GraphPage() {
   const camRef = useRef<Camera>(persisted?.camera ?? { x: 0, y: 0, zoom: 1 });
   const strengthRef = useRef(persisted?.strength ?? 1);
   const logoRef = useRef<HTMLImageElement | null>(null);
+  const pulsesRef = useRef<PulseMap>(new Map());
+  const logSinceRef = useRef<number>(0);
   const sizeRef = useRef({ w: 800, h: 600 });
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
 
   const hadPersisted = useRef(!!persisted);
   const [loading, setLoading] = useState(!persisted);
@@ -605,7 +679,7 @@ export default function GraphPage() {
         ? parentLinksRef.current.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
         : parentLinksRef.current;
 
-      draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current, visibleParentLinks, showParentLinksRef.current);
+      draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current, visibleParentLinks, showParentLinksRef.current, pulsesRef.current, performance.now());
       frame = requestAnimationFrame(loop);
     };
 
@@ -622,6 +696,43 @@ export default function GraphPage() {
     ro.observe(container);
     return () => ro.disconnect();
   }, [resize]);
+
+  // Log polling for pulse effects
+  useEffect(() => {
+    if (loading) return;
+    const poll = async () => {
+      try {
+        const since = logSinceRef.current > 0 ? logSinceRef.current + 1 : undefined;
+        const logs = await fetchLogs({ limit: 50, since });
+        if (logs.length === 0) return;
+        const last = new Date(logs[logs.length - 1].time).getTime();
+        if (last > logSinceRef.current) logSinceRef.current = last;
+        const now = performance.now();
+        for (const log of logs) {
+          const agentId = log.attrs?.agent as string | undefined;
+          const ticketId = log.attrs?.ticket as string | undefined;
+          const isError = log.level === "ERROR";
+          if (agentId) pulsesRef.current.set(agentId, { time: now, isError });
+          if (ticketId) pulsesRef.current.set(`ticket:${ticketId}`, { time: now, isError });
+          // Edge pulse when log references both agent and ticket
+          if (agentId && ticketId) {
+            const edgeKey = [agentId, `ticket:${ticketId}`].sort().join("|||");
+            pulsesRef.current.set(edgeKey, { time: now, isError });
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+    // Initial fetch to set baseline (no pulse on first load)
+    fetchLogs({ limit: 1 }).then((logs) => {
+      if (logs.length > 0) {
+        logSinceRef.current = new Date(logs[logs.length - 1].time).getTime();
+      }
+    }).catch(() => {});
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   // Hit-test in world coordinates
   const findNode = useCallback((ex: number, ey: number) => {
@@ -669,13 +780,14 @@ export default function GraphPage() {
       // Hover
       const n = findNode(e.clientX, e.clientY);
       hoveredRef.current = n?.id ?? null;
-      canvas.style.cursor = n ? "grab" : "default";
+      canvas.style.cursor = n ? (n.kind === "ticket" ? "pointer" : "grab") : "default";
     },
     [findNode],
   );
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
       const n = findNode(e.clientX, e.clientY);
       const canvas = canvasRef.current;
       if (!canvas) return;
@@ -704,12 +816,28 @@ export default function GraphPage() {
     [findNode],
   );
 
-  const onMouseUp = useCallback(() => {
+  const onMouseUp = useCallback((e: React.MouseEvent) => {
+    const downPos = mouseDownPosRef.current;
+    const wasDrag = dragRef.current;
     dragRef.current = null;
     panRef.current = null;
+    mouseDownPosRef.current = null;
     const canvas = canvasRef.current;
     if (canvas) canvas.style.cursor = "default";
-  }, []);
+
+    // Detect click (< 5px movement) on a ticket node
+    if (downPos && wasDrag) {
+      const dx = e.clientX - downPos.x;
+      const dy = e.clientY - downPos.y;
+      if (dx * dx + dy * dy < 25) {
+        const n = findNode(e.clientX, e.clientY);
+        if (n && n.kind === "ticket") {
+          const ticketId = n.id.replace(/^ticket:/, "");
+          setSelectedTicketId(ticketId);
+        }
+      }
+    }
+  }, [findNode]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
@@ -833,10 +961,26 @@ export default function GraphPage() {
           onMouseMove={onMouseMove}
           onMouseDown={onMouseDown}
           onMouseUp={onMouseUp}
-          onMouseLeave={onMouseUp}
+          onMouseLeave={() => {
+            dragRef.current = null;
+            panRef.current = null;
+            mouseDownPosRef.current = null;
+            const canvas = canvasRef.current;
+            if (canvas) canvas.style.cursor = "default";
+          }}
           onWheel={onWheel}
         />
       </div>
+
+      <Dialog
+        open={selectedTicketId !== null}
+        onOpenChange={(open) => { if (!open) setSelectedTicketId(null); }}
+      >
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+          <DialogTitle className="sr-only">Ticket Details</DialogTitle>
+          {selectedTicketId && <TicketDetail id={selectedTicketId} onNavigate={setSelectedTicketId} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
