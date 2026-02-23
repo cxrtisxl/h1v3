@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -66,11 +66,11 @@ func (t *ExecTool) Execute(ctx context.Context, params map[string]any) (string, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	if t.WorkDir != "" {
+		os.MkdirAll(t.WorkDir, 0o755)
 		cmd.Dir = t.WorkDir
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var buf bytes.Buffer
 	cmd.Stdout = &buf

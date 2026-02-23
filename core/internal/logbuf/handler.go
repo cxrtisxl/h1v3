@@ -34,7 +34,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		for _, g := range h.groups {
 			key = g + "." + key
 		}
-		attrs[key] = a.Value.Any()
+		attrs[key] = resolveAttrValue(a.Value)
 	}
 	// Record-level attrs
 	r.Attrs(func(a slog.Attr) bool {
@@ -42,7 +42,7 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		for _, g := range h.groups {
 			key = g + "." + key
 		}
-		attrs[key] = a.Value.Any()
+		attrs[key] = resolveAttrValue(a.Value)
 		return true
 	})
 
@@ -64,6 +64,18 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		return h.inner.Handle(ctx, r)
 	}
 	return nil
+}
+
+// resolveAttrValue converts slog values to JSON-safe types.
+// Errors are converted to their string representation so they don't
+// serialize to {} when JSON-marshaled.
+func resolveAttrValue(v slog.Value) any {
+	v = v.Resolve()
+	raw := v.Any()
+	if err, ok := raw.(error); ok {
+		return err.Error()
+	}
+	return raw
 }
 
 func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
