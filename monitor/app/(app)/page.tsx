@@ -1,34 +1,38 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TicketTable } from "@/components/ticket-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAgents, fetchTickets } from "@/lib/api";
 import type { Agent, Ticket } from "@/lib/api";
+import { POLL_INTERVAL } from "@/lib/config";
 
 export default function OverviewPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [a, t] = await Promise.all([
-          fetchAgents(),
-          fetchTickets({ limit: 20 }),
-        ]);
-        setAgents(a);
-        setTickets(t);
-      } catch {
-        // auth redirect handled by api client
-      } finally {
-        setLoading(false);
-      }
+  const load = useCallback(async () => {
+    try {
+      const [a, t] = await Promise.all([
+        fetchAgents(),
+        fetchTickets({ limit: 20 }),
+      ]);
+      setAgents(a);
+      setTickets(t);
+    } catch {
+      // auth redirect handled by api client
+    } finally {
+      setLoading(false);
     }
-    load();
   }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const openCount = tickets.filter((t) => t.status === "open").length;
 

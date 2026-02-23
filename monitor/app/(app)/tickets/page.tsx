@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { fetchTickets } from "@/lib/api";
 import type { Ticket } from "@/lib/api";
+import { POLL_INTERVAL } from "@/lib/config";
 
 const STATUS_OPTIONS = ["all", "open", "closed"] as const;
 
@@ -28,6 +29,8 @@ export default function TicketsPage() {
   useEffect(() => {
     setLoading(true);
     load();
+    const interval = setInterval(load, POLL_INTERVAL);
+    return () => clearInterval(interval);
   }, [load]);
 
   return (

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchAgents, fetchTickets } from "@/lib/api";
 import type { Agent, Ticket } from "@/lib/api";
+import { POLL_INTERVAL } from "@/lib/config";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -227,6 +228,7 @@ function simulate(
 
 const COLORS = {
   agent: "#6AEC01",
+  agentBg: "#0a0a10",
   agentStroke: "#55bd01",
   external: "#FFFFFF",
   externalStroke: "#cccccc",
@@ -249,6 +251,7 @@ function draw(
   cam: Camera,
   hoveredId: string | null,
   dragId: string | null,
+  logo: HTMLImageElement | null,
 ) {
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
@@ -279,40 +282,49 @@ function draw(
   // Nodes
   for (const n of nodes) {
     const isActive = n.id === hoveredId || n.id === dragId;
-    let fill: string;
-    let stroke: string;
+    const r = n.radius + (isActive ? 3 : 0);
 
-    switch (n.kind) {
-      case "agent":
-        fill = COLORS.agent;
-        stroke = COLORS.agentStroke;
-        break;
-      case "external":
-        fill = COLORS.external;
-        stroke = COLORS.externalStroke;
-        break;
-      default:
-        fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
-        stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
-        break;
-    }
-
-    // Shadow for agents
     if (n.kind === "agent") {
+      // Filled background + green border + logo inside
       ctx.shadowColor = "rgba(106,236,1,0.3)";
       ctx.shadowBlur = 12;
+
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = COLORS.agentBg;
+      ctx.fill();
+      ctx.strokeStyle = COLORS.agent;
+      ctx.lineWidth = (isActive ? 3.5 : 2.5) / cam.zoom;
+      ctx.stroke();
+
+      ctx.shadowColor = "transparent";
+      ctx.shadowBlur = 0;
+
+      // Draw logo centered inside
+      if (logo) {
+        const logoSize = r * 1.2;
+        ctx.drawImage(logo, n.x - logoSize / 2, n.y - logoSize / 2, logoSize, logoSize);
+      }
+    } else {
+      let fill: string;
+      let stroke: string;
+
+      if (n.kind === "external") {
+        fill = COLORS.external;
+        stroke = COLORS.externalStroke;
+      } else {
+        fill = n.status === "open" ? COLORS.ticketOpen : COLORS.ticketClosed;
+        stroke = n.status === "open" ? COLORS.ticketOpenStroke : COLORS.ticketClosedStroke;
+      }
+
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = fill;
+      ctx.fill();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = (isActive ? 3 : 2) / cam.zoom;
+      ctx.stroke();
     }
-
-    ctx.beginPath();
-    ctx.arc(n.x, n.y, n.radius + (isActive ? 3 : 0), 0, Math.PI * 2);
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.strokeStyle = stroke;
-    ctx.lineWidth = (isActive ? 3 : 2) / cam.zoom;
-    ctx.stroke();
-
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
 
     // Label — always below the node
     const fontSize = n.kind === "ticket" ? 10 : 12;
@@ -364,10 +376,18 @@ export default function GraphPage() {
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const panRef = useRef<{ startX: number; startY: number; camX: number; camY: number } | null>(null);
   const camRef = useRef<Camera>({ x: 0, y: 0, zoom: 1 });
+  const logoRef = useRef<HTMLImageElement | null>(null);
   const sizeRef = useRef({ w: 800, h: 600 });
 
   const [loading, setLoading] = useState(true);
   const [, setTick] = useState(0); // force re-render for legend
+
+  // Preload logo
+  useEffect(() => {
+    const img = new Image();
+    img.src = "/h1v3-logo.svg";
+    img.onload = () => { logoRef.current = img; };
+  }, []);
 
   const resize = useCallback(() => {
     const canvas = canvasRef.current;
@@ -383,31 +403,57 @@ export default function GraphPage() {
     sizeRef.current = { w, h };
   }, []);
 
-  // Load data
-  useEffect(() => {
-    async function load() {
-      try {
-        const [agents, tickets] = await Promise.all([
-          fetchAgents(),
-          fetchTickets({ limit: 200 }),
-        ]);
-        const { nodes, edges } = buildGraph(agents, tickets);
-        nodesRef.current = nodes;
+  // Load data + poll every 5s
+  const loadGraph = useCallback(async (initial: boolean) => {
+    try {
+      const [agents, tickets] = await Promise.all([
+        fetchAgents(),
+        fetchTickets({ limit: 200 }),
+      ]);
+      const { nodes: freshNodes, edges } = buildGraph(agents, tickets);
+
+      if (initial) {
+        nodesRef.current = freshNodes;
         edgesRef.current = edges;
-        // Init positions after we know container size
         requestAnimationFrame(() => {
           resize();
           initPositions(nodesRef.current, sizeRef.current.w, sizeRef.current.h);
           setTick((t) => t + 1);
         });
-      } catch {
-        // auth redirect handled by api client
-      } finally {
-        setLoading(false);
+      } else {
+        // Merge: preserve positions of existing nodes, init new ones
+        const existing = new Map(nodesRef.current.map((n) => [n.id, n]));
+        const { w, h } = sizeRef.current;
+        for (const n of freshNodes) {
+          const prev = existing.get(n.id);
+          if (prev) {
+            // Keep position/velocity, update mutable data
+            prev.label = n.label;
+            prev.status = n.status;
+          } else {
+            // New node — place near center with jitter
+            n.x = w / 2 + (Math.random() - 0.5) * 100;
+            n.y = h / 2 + (Math.random() - 0.5) * 100;
+            n.vx = 0;
+            n.vy = 0;
+          }
+        }
+        const freshIds = new Set(freshNodes.map((n) => n.id));
+        nodesRef.current = freshNodes.map((n) => existing.get(n.id) ?? n);
+        // Remove nodes that no longer exist
+        nodesRef.current = nodesRef.current.filter((n) => freshIds.has(n.id));
+        edgesRef.current = edges;
       }
+    } catch {
+      // auth redirect handled by api client
     }
-    load();
   }, [resize]);
+
+  useEffect(() => {
+    loadGraph(true).finally(() => setLoading(false));
+    const interval = setInterval(() => loadGraph(false), POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [loadGraph]);
 
   // Animation loop
   useEffect(() => {
@@ -422,7 +468,7 @@ export default function GraphPage() {
       if (!ctx) return;
 
       simulate(nodesRef.current, edgesRef.current, w, h);
-      draw(ctx, nodesRef.current, edgesRef.current, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null);
+      draw(ctx, nodesRef.current, edgesRef.current, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current);
       frame = requestAnimationFrame(loop);
     };
 
@@ -561,7 +607,7 @@ export default function GraphPage() {
         <h2 className="text-2xl font-semibold tracking-tight">Graph</h2>
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-full" style={{ background: COLORS.agent }} />
+            <span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: COLORS.agent }} />
             Agent
           </span>
           <span className="flex items-center gap-1.5">

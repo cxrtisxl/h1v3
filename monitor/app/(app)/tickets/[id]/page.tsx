@@ -11,6 +11,7 @@ import { MessageThread } from "@/components/message-thread";
 import { LogTable } from "@/components/log-table";
 import { fetchTicket, fetchTickets, fetchLogs } from "@/lib/api";
 import type { Ticket, LogEntry, PromptMessage } from "@/lib/api";
+import { POLL_INTERVAL } from "@/lib/config";
 
 function logsForTicket(logs: LogEntry[], ticketId: string): LogEntry[] {
   return logs.filter((e) => {
@@ -87,7 +88,7 @@ export default function TicketDetailPage() {
   // Auto-refresh for open tickets
   useEffect(() => {
     if (!ticket || ticket.status !== "open") return;
-    const interval = setInterval(load, 3000);
+    const interval = setInterval(load, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [ticket, load]);
 

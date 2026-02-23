@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { LogTable } from "@/components/log-table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { fetchLogs } from "@/lib/api";
 import type { LogEntry } from "@/lib/api";
+import { POLL_INTERVAL } from "@/lib/config";
 
 const LEVEL_OPTIONS = ["all", "debug", "info", "warn", "error"] as const;
 
@@ -61,7 +62,7 @@ export default function LogsPage() {
       } catch {
         // ignore polling errors
       }
-    }, 2000);
+    }, POLL_INTERVAL);
 
     return () => clearInterval(interval);
   }, [polling, level]);
