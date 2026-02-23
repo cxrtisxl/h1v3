@@ -133,7 +133,19 @@ function buildGraph(agents: Agent[], tickets: Ticket[]) {
     }
   }
 
-  return { nodes: Array.from(nodes.values()), edges };
+  // Parent–child links between tickets (visual only, not simulated)
+  const parentLinks: GraphEdge[] = [];
+  for (const t of tickets) {
+    if (t.parent_ticket_id) {
+      const child = `ticket:${t.id}`;
+      const parent = `ticket:${t.parent_ticket_id}`;
+      if (nodes.has(child) && nodes.has(parent)) {
+        parentLinks.push({ source: child, target: parent });
+      }
+    }
+  }
+
+  return { nodes: Array.from(nodes.values()), edges, parentLinks };
 }
 
 /* ------------------------------------------------------------------ */
@@ -285,6 +297,8 @@ function draw(
   hoveredId: string | null,
   dragId: string | null,
   logo: HTMLImageElement | null,
+  parentLinks: GraphEdge[],
+  showParentLinks: boolean,
 ) {
   const lookup = new Map<string, GraphNode>();
   for (const n of nodes) lookup.set(n.id, n);
@@ -310,6 +324,24 @@ function draw(
     ctx.strokeStyle = isHighlighted ? "rgba(148,163,184,0.7)" : COLORS.edge;
     ctx.lineWidth = (isHighlighted ? 2 : 1) / cam.zoom;
     ctx.stroke();
+  }
+
+  // Parent–child links (dotted)
+  if (showParentLinks) {
+    ctx.setLineDash([4, 4]);
+    for (const e of parentLinks) {
+      const a = lookup.get(e.source);
+      const b = lookup.get(e.target);
+      if (!a || !b) continue;
+      const isHighlighted = hoveredId && (a.id === hoveredId || b.id === hoveredId);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = isHighlighted ? "rgba(148,163,184,0.6)" : "rgba(148,163,184,0.25)";
+      ctx.lineWidth = (isHighlighted ? 2 : 1) / cam.zoom;
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
   }
 
   // Nodes
@@ -413,10 +445,12 @@ function screenToWorld(sx: number, sy: number, cam: Camera): { wx: number; wy: n
 interface PersistedState {
   nodes: GraphNode[];
   edges: GraphEdge[];
+  parentLinks: GraphEdge[];
   camera: Camera;
   strength: number;
   showClosed: boolean;
   pinAgents: boolean;
+  showParentLinks: boolean;
 }
 
 let persisted: PersistedState | null = null;
@@ -430,6 +464,7 @@ export default function GraphPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const nodesRef = useRef<GraphNode[]>(persisted?.nodes ?? []);
   const edgesRef = useRef<GraphEdge[]>(persisted?.edges ?? []);
+  const parentLinksRef = useRef<GraphEdge[]>(persisted?.parentLinks ?? []);
   const animRef = useRef<number>(0);
   const hoveredRef = useRef<string | null>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
@@ -446,6 +481,8 @@ export default function GraphPage() {
   const showClosedRef = useRef(persisted?.showClosed ?? true);
   const [pinAgents, setPinAgents] = useState(persisted?.pinAgents ?? false);
   const pinAgentsRef = useRef(persisted?.pinAgents ?? false);
+  const [showParentLinks, setShowParentLinks] = useState(persisted?.showParentLinks ?? true);
+  const showParentLinksRef = useRef(persisted?.showParentLinks ?? true);
   const [, setTick] = useState(0); // force re-render for legend
 
   // Preload logo
@@ -476,7 +513,8 @@ export default function GraphPage() {
         fetchAgents(),
         fetchTickets({ limit: 200 }),
       ]);
-      const { nodes: freshNodes, edges } = buildGraph(agents, tickets);
+      const { nodes: freshNodes, edges, parentLinks } = buildGraph(agents, tickets);
+      parentLinksRef.current = parentLinks;
 
       if (initial && !hadPersisted.current) {
         nodesRef.current = freshNodes;
@@ -530,10 +568,12 @@ export default function GraphPage() {
       persisted = {
         nodes: nodesRef.current,
         edges: edgesRef.current,
+        parentLinks: parentLinksRef.current,
         camera: { ...camRef.current },
         strength: strengthRef.current,
         showClosed: showClosedRef.current,
         pinAgents: pinAgentsRef.current,
+        showParentLinks: showParentLinksRef.current,
       };
     };
   }, []);
@@ -560,7 +600,12 @@ export default function GraphPage() {
         : edgesRef.current;
 
       simulate(visibleNodes, visibleEdges, w, h, strengthRef.current, pinAgentsRef.current);
-      draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current);
+      // Filter parent links for visible nodes
+      const visibleParentLinks = visibleIds
+        ? parentLinksRef.current.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target))
+        : parentLinksRef.current;
+
+      draw(ctx, visibleNodes, visibleEdges, w, h, camRef.current, hoveredRef.current, dragRef.current?.id ?? null, logoRef.current, visibleParentLinks, showParentLinksRef.current);
       frame = requestAnimationFrame(loop);
     };
 
@@ -746,6 +791,22 @@ export default function GraphPage() {
               className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${pinAgents ? "bg-[#6AEC01]" : "bg-muted"}`}
             >
               <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${pinAgents ? "translate-x-3.5" : "translate-x-0.5"}`} />
+            </button>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <span>Links</span>
+            <button
+              role="switch"
+              aria-checked={showParentLinks}
+              onClick={() => {
+                setShowParentLinks((v) => {
+                  showParentLinksRef.current = !v;
+                  return !v;
+                });
+              }}
+              className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${showParentLinks ? "bg-[#6AEC01]" : "bg-muted"}`}
+            >
+              <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${showParentLinks ? "translate-x-3.5" : "translate-x-0.5"}`} />
             </button>
           </label>
           <div className="flex items-center gap-2">
