@@ -4,7 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Ticket, ScrollText, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
+import { LayoutDashboard, Ticket, ScrollText, Network, LogOut, PanelLeftClose, PanelLeftOpen, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { clearAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 const navItems: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/tickets", label: "Tickets", icon: Ticket },
+  { href: "/graph", label: "Graph", icon: Network },
   { href: "/logs", label: "Logs", icon: ScrollText },
 ];
 
